@@ -688,7 +688,8 @@ function mostraPadrao(){
       Fabricação: <b>${fmtBR(EQ.fab)}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
       Próx. Man. 2º Nível: <b>${fmtBR(EQ.man2)}</b> · 3º Nível: <b>${fmtBR(EQ.man3)}</b>
-      ${!EQ.num&&!isReserva(EQ)?`<br><b style="color:var(--warn)">⚠️ Local vazio — abra "Ações do equipamento" e use "Verificar nº do local".</b>`:""}
+      ${!EQ.num&&!isReserva(EQ)&&!EQ.engex?`<br><b style="color:var(--warn)">⚠️ Local vazio — abra "Ações do equipamento" e use "Verificar nº do local".</b>`:""}
+      ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro Engex ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
       ${isReserva(EQ)&&!cd?`<br><span class="badge" style="background:var(--cinza2);margin-top:8px">RESERVA</span>`:""}
       ${EQ.engex&&!cd?`<br><span class="badge b-engex" style="margin-top:8px">🏢 RESERVA ENGEX desde ${fmtBR(EQ.engexDesde)}</span>`:""}
       ${cxCond}${acoes}`
@@ -1068,7 +1069,7 @@ window.salvar=async()=>{
   if(!podeGravar())return;
   if(!EQ)return toast("Selecione o equipamento.");
   /* --- Validações de evidência e integridade --- */
-  if(TIPO==="ext"&&!EQ.num&&!isReserva(EQ))
+  if(TIPO==="ext"&&!EQ.num&&!isReserva(EQ)&&!EQ.engex)
     return toast('Local vazio: abra "⚙️ Ações do equipamento" → "🔎 Verificar nº do local" e informe o cilindro que está aqui antes de inspecionar.');
   /* cilindro condenado está fora de operação e não recebe inspeção */
   if(TIPO==="ext"){const _cd=condDe(EQ.num);
