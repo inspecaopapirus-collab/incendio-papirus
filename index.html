@@ -700,10 +700,10 @@ function mostraPadrao(){
 
 /* ---------- Reserva emprestada pela Engex (temporária, até o cilindro original retornar da manutenção) ---------- */
 window.toggleEngex=async()=>{
-  if(!EQ||TIPO!=="ext"||isReserva(EQ)||!EQ.num)return;
+  if(!EQ||TIPO!=="ext"||isReserva(EQ))return;
   const ligando=!EQ.engex;
   const msg=ligando
-    ?`Marcar o cilindro Nº ${EQ.num} (Ext ${EQ.seq}) como reserva emprestada pela Engex?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da Engex até a manutenção do seu retornar.`
+    ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela Engex?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da Engex até a manutenção do seu retornar. Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`
     :`Desmarcar a reserva Engex deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
   if(!confirm(msg))return;
   const seq=String(EQ.seq);
@@ -724,7 +724,7 @@ window.acoesEquip=()=>{
   const arg=v=>"'"+String(v).replace(/['\\\\]/g,"")+"'";
   if(ext&&!isReserva(EQ)&&!cd&&EQ.num)
     L.push(`<button class="btn sec" onclick="${ir("abrirTroca")}">🔁 Substituir por reserva (recarga)</button>`);
-  if(ext&&!isReserva(EQ)&&!cd&&EQ.num)
+  if(ext&&!isReserva(EQ)&&!cd)
     L.push(`<button class="btn sec" style="border-color:var(--warn);color:#92400e" onclick="${ir("toggleEngex")}">${EQ.engex?"↩️ Desmarcar reserva Engex":"🏢 Marcar como reserva Engex"}</button>`);
   if(ext&&ISADMIN&&!isReserva(EQ)&&!cd)
     L.push(`<button class="btn sec" onclick="${ir("corrigirLocal")}">🔎 Verificar nº do local</button>`);
@@ -1452,7 +1452,7 @@ window.render=()=>{
     if(comEngex.length)eb.innerHTML=`<b>🏢 Pontos com reserva Engex (${comEngex.length})</b>
       <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 4px">Cilindro emprestado pela Engex, temporariamente no lugar do original que está em manutenção.</p>`
       +comEngex.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Ext ${esc(String(e.seq))} — ${esc(String(e.loc||"").replace(/^Ext \d+ — /,""))}
-        <br><small style="color:var(--cinza)">Nº ${esc(String(e.num))} · reserva desde ${fmtBR(e.engexDesde)}</small></span>
+        <br><small style="color:var(--cinza)">${e.num?`Nº ${esc(String(e.num))} · `:"Número do cilindro ainda não informado · "}reserva desde ${fmtBR(e.engexDesde)}</small></span>
         <span class="badge b-engex">Engex</span></div>`).join("");
   }
   $("pendBox").innerHTML=`<b>🗺️ Rota de inspeção — ${pm.split("-").reverse().join("/")}</b>
