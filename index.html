@@ -1391,6 +1391,7 @@ window.render=()=>{
   $("lista").innerHTML=(arr.length?arr.slice(0,LIST_N).map(i=>{
     const id=i.tipo==="ext"?`Nº ${i.eqNum??i.eqSeq}`:i.eqPat;
     const cd=i.tipo==="ext"?condDe(i.eqNum):null;
+    const eqAtual=i.tipo==="ext"?CAD.ext.find(x=>String(x.seq)===String(i.eqSeq)):null;
     return `<div class="card item" onclick="abrir('${i.id}')" style="cursor:pointer">
       ${i.foto1?`<img src="${i.foto1}" ${fotoClick(i.foto1,tituloFoto(i,1),nomeArqFoto(i,1))} alt="Foto da inspeção">`:""}
       <div class="info">
@@ -1399,11 +1400,13 @@ window.render=()=>{
         ${i.divergencia?`<span class="badge" style="background:var(--warn)">⚠️ divergência</span>`:""}
         ${(i.temFoto&&!i.foto1)?`<span class="badge" style="background:var(--cinza)">📷 com foto</span>`:""}
         ${cd?`<span class="badge b-cond">⛔ CONDENADO</span>`:""}
+        ${eqAtual&&eqAtual.engex?`<span class="badge b-engex">🏢 ENGEX</span>`:""}
         <h3 style="margin-top:6px">${id}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${i.eqSeq}`:""} · ${esc(i.eqLoc||"—")}</h3>
         ${i.tipo==="ext"&&(i.tipoLocal||i.cargaLocal)?`<p style="font-size:12.5px;color:var(--vinho);font-weight:700">${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</p>`:""}
         <p>${esc(i.obs||"Sem observações.")}</p>
         <div class="meta">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
         ${cd?`<div class="meta" style="color:var(--cd)">Condenado em ${fmtBR(cd.data)} · ${esc(cd.relatorio||"—")}</div>`:""}
+        ${eqAtual&&eqAtual.engex?`<div class="meta" style="color:#92400e">🏢 Local hoje com reserva Engex desde ${fmtBR(eqAtual.engexDesde)}</div>`:""}
       </div></div>`;}).join("")
     :(ITENS.length
       ?`<div class="card"><div class="vazio"><span class="ic">🔍</span><b>Nenhum registro com esses filtros</b>
