@@ -2414,13 +2414,15 @@ window.etiquetasQR=()=>{
     <select id="qtArea"><option value="">Todas as áreas</option>${areas.map(a=>`<option>${esc(a)}</option>`).join("")}</select>
     <label>Individual: digite o nº, ID ou descrição (em branco = todos do filtro)</label>
     <input id="qtBusca" placeholder="ex.: 1234">
+    <p style="font-size:11.5px;color:var(--cinza);margin-top:6px">📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).</p>
     <button class="btn" onclick="geraEtiquetas()">🖨️ Gerar e imprimir</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
 window.geraEtiquetas=async()=>{
   const t=$("qtTipo").value,area=$("qtArea").value,busca=$("qtBusca").value.trim().toLowerCase();
   const filtro=e=>(!area||normRota(e.loc)===area)&&(!busca||`${e.num??""} ${e.pat??""} ${e.loc??""}`.toLowerCase().includes(busca));
-  const areas=(t==="todos"||t==="area")?CAD.ext.filter(filtro):[];
+  /* etiqueta de LOCAL só faz sentido em posição física fixa — vagas do pool de reserva não têm parede pra colar */
+  const areas=(t==="todos"||t==="area")?CAD.ext.filter(e=>!isReserva(e)&&filtro(e)):[];
   const extns=(t==="todos"||t==="extn")?CAD.ext.filter(e=>e.num&&filtro(e)):[];
   const hids=(t==="todos"||t==="hid")?CAD.hid.filter(filtro):[];
   if(!areas.length&&!extns.length&&!hids.length)return toast("Nenhum equipamento com esse filtro.");
@@ -2442,11 +2444,18 @@ window.geraEtiquetas=async()=>{
     cards+=`<div class="et"><img src="${src}"><div><b>🚒 ${esc(String(h.pat))}</b><br><small>${esc(String(h.loc||"").slice(0,48))}</small></div></div>`;}
   off.remove();
   const fr=document.createElement("iframe");fr.style.display="none";document.body.appendChild(fr);
-  fr.contentDocument.write(`<html><head><title>Etiquetas QR — Papirus</title><style>
-    body{font-family:Arial;margin:8mm}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
-    .et{border:1px dashed #999;border-radius:6px;padding:3mm;display:flex;gap:3mm;align-items:center;break-inside:avoid;font-size:10.5px;line-height:1.35}
-    .et img{width:24mm;height:24mm}</style></head><body><div class="grid">${cards}</div></body></html>`);
+  fr.contentDocument.write(`<html><head><title>Etiquetas QR — Papirus — Pimaco A4360</title><style>
+    @page{size:A4;margin:15.15mm 7.2mm}
+    *{box-sizing:border-box}
+    body{font-family:Arial,sans-serif;margin:0}
+    .grid{display:flex;flex-wrap:wrap}
+    /* Molde Pimaco A4360: 63,5mm x 38,1mm · 3 colunas x 7 linhas · sem espaço vertical · 2,5mm entre colunas */
+    .et{width:63.5mm;height:38.1mm;margin-right:2.5mm;padding:1.5mm 2mm;border:1px dotted #bbb;
+      display:flex;gap:2mm;align-items:center;overflow:hidden;page-break-inside:avoid;font-size:9px;line-height:1.3}
+    .et:nth-child(3n){margin-right:0}
+    .et img{width:26mm;height:26mm;flex-shrink:0}
+    .et b{font-size:10.5px}
+    .et small{font-size:8px;color:#555}</style></head><body><div class="grid">${cards}</div></body></html>`);
   fr.contentDocument.close();
   setTimeout(()=>{fr.contentWindow.print();setTimeout(()=>fr.remove(),3000);},500);};
 
