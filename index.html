@@ -3020,7 +3020,7 @@ window.exportXLSX=async tipo=>{
     ws.views=[{state:"frozen",ySplit:9}];
     let r=10;
     for(const e of CAD.hid){
-      const insp=ultima[String(e.pat)]||null;
+      const insp=ultima[String(e.seq)]||null;
       const h=insp?.hid||{};
       const row=ws.getRow(r);row.height=66.75;
       row.values=[e.seq,"Hidrante",insp?.inspetor||"",e.pat||"",e.tipo??"",e.cap??"",e.fab??"",e.fabricante||"",e.loc||"",
