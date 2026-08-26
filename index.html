@@ -1287,7 +1287,7 @@ window.confirmaCorrecaoLocal=async()=>{
   const dY={},vazio={},dX={};
   CAMPOS.forEach(c=>{dY[c]=Y[c]??null;vazio[c]=null;dX[c]=EQ[c]??null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
-  OVR[String(EQ.seq)]={engex:OVR[String(EQ.seq)]?.engex,engexDesde:OVR[String(EQ.seq)]?.engexDesde,...dY};    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false;
   if(dX.num){                /* o que constava aqui vira reserva */
@@ -1357,7 +1357,7 @@ window.confirmaTroca=async()=>{
   const eraReserva=isReserva(r);
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const doEQ={},doR={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;doR[c]=r[c]??null;});
-  OVR[String(EQ.seq)]={engex:OVR[String(EQ.seq)]?.engex,engexDesde:OVR[String(EQ.seq)]?.engexDesde,...doR};OVR[String(r.seq)]=doEQ;
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...doR};}OVR[String(r.seq)]=doEQ;
   try{
     await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
     await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
