@@ -422,6 +422,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <button class="btn sec" onclick="editarEquip()">✏️ Editar / remover equip.</button>
  <button class="btn sec" onclick="importarLote()">📥 Importar em lote</button>
  <button class="btn sec" onclick="corrigirLote()">🛠️ Corrigir em lote</button>
+ <button class="btn sec" onclick="revisarReservas()">🧹 Revisar pool de reserva</button>
  <button class="btn sec" onclick="etiquetasQR()">🏷️ Etiquetas QR</button>
  <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
  </div>
@@ -1419,15 +1420,17 @@ window.render=()=>{
   const pm=$("pMes").value;
   const mesArr=ITENS.filter(i=>i.mes===pm);
   const inspEq=new Set(mesArr.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
-  /* reservas não entram na conta da rota do mês — só posições instaladas */
-  const extRota=CAD.ext.filter(e=>!isReserva(e));
+  /* todos os extintores entram na rota do mês, inclusive os do pool de reserva — a norma exige inspeção de todos.
+     Vagas de reserva ainda vazias (sem cilindro) não contam, e cilindros condenados também saem
+     da rota — nenhum dos dois tem equipamento apto a ser inspecionado. */
+  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e));
   const tot=extRota.length+CAD.hid.length;
   $("kInsp").textContent=inspEq.size;
   $("kPend").textContent=Math.max(0,tot-inspEq.size);
   $("kNC").textContent=mesArr.filter(i=>i.conformidade==="NC").length;
   $("kDiv").textContent=mesArr.filter(i=>i.divergencia).length;
   const pendExt=[],pendHid=[];
-  extRota.forEach(e=>{if(!inspEq.has("ext_"+e.seq))pendExt.push({t:"ext",id:e.seq,lb:`🧯 Ext ${e.seq} (Nº ${e.num??"—"})`,loc:e.loc||"Sem área"});});
+  extRota.forEach(e=>{if(!inspEq.has("ext_"+e.seq))pendExt.push({t:"ext",id:e.seq,lb:isReserva(e)?`🧯 Reserva (Nº ${e.num??"—"})`:`🧯 Ext ${e.seq} (Nº ${e.num??"—"})`,loc:e.loc||"Sem área"});});
   CAD.hid.forEach(h=>{if(!inspEq.has("hid_"+h.seq))pendHid.push({t:"hid",id:h.pat,lb:`🚒 ${h.pat}`,loc:h.loc||"Sem área"});});
   const pendTotal=pendExt.length+pendHid.length;
   const pct=tot?Math.round(100*inspEq.size/tot):0;
@@ -2112,7 +2115,7 @@ window.laudoPDF=async()=>{
   if(!pm)return toast("Escolha o mês no Painel.");
   const mes=ITENS.filter(i=>i.mes===pm);
   const ext=mes.filter(i=>i.tipo==="ext"),hid=mes.filter(i=>i.tipo==="hid");
-  const extRota=CAD.ext.filter(e=>!isReserva(e));
+  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e));
   const totPontos=extRota.length+CAD.hid.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
   const nc=mes.filter(i=>i.conformidade==="NC");
@@ -2130,7 +2133,7 @@ window.laudoPDF=async()=>{
 
   /* pendências agrupadas por área */
   const pend={};
-  extRota.forEach(e=>{if(!inspSet.has("ext_"+e.seq)){const a=normRota(e.loc);(pend[a]=pend[a]||[]).push(`Ext ${e.seq}${e.num?` (Nº ${e.num})`:""}`);}});
+  extRota.forEach(e=>{if(!inspSet.has("ext_"+e.seq)){const a=normRota(e.loc);(pend[a]=pend[a]||[]).push(isReserva(e)?`Reserva${e.num?` (Nº ${e.num})`:""}`:`Ext ${e.seq}${e.num?` (Nº ${e.num})`:""}`);}});
   CAD.hid.forEach(h=>{if(!inspSet.has("hid_"+h.seq)){const a=normRota(h.loc);(pend[a]=pend[a]||[]).push(`Hidrante ${h.pat}`);}});
 
   /* vencimentos */
@@ -2758,6 +2761,7 @@ window.abreEdicaoExtSeq=seq=>{
       <div class="row"><div><label>Nº</label><input id="xNum" value="${esc(e.num??"")}"></div><div><label>Patrimônio</label><input id="xPat" value="${esc(e.pat??"")}"></div></div>
       <div class="row"><div><label>Padrão de agente</label><input id="xAgp" value="${esc(e.agp??"")}"></div><div><label>Padrão de carga</label><input id="xCgp" value="${esc(e.cgp??"")}"></div></div>
       <label>Localização</label><input id="xLoc" value="${esc(e.loc??"")}">
+      <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(e.fab??"")}"></div><div><label>Fabricante</label><input id="xFabr" value="${esc(e.fabricante??"")}"></div></div>
       <div class="row"><div><label>Próx. Man. 2º Nível</label><input id="xM2" type="date" value="${e.man2||""}"></div><div><label>Próx. Man. 3º Nível</label><input id="xM3" type="date" value="${e.man3||""}"></div></div>
       <button class="btn" onclick="salvaEdEquip('ext','${e.seq}')">💾 Salvar</button>
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('ext','${e.seq}')">🗑️ Remover do cadastro</button>
@@ -2769,19 +2773,58 @@ window.abreEdicaoHidPat=pat=>{
     $("dlgBody").innerHTML=`<h3>✏️ Hidrante ${h.pat}</h3>
       <div class="row"><div><label>Tipo</label><input id="xAgp" value="${esc(h.tipo??"")}"></div><div><label>Capacidade</label><input id="xCgp" value="${esc(h.cap??"")}"></div></div>
       <label>Localização</label><input id="xLoc" value="${esc(h.loc??"")}">
+      <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(h.fab??"")}"></div><div><label>Fabricante</label><input id="xFabr" value="${esc(h.fabricante??"")}"></div></div>
       <div class="row"><div><label>Próx. Manutenção</label><input id="xM2" type="date" value="${h.man||""}"></div><div><label>Próx. T. Hidrostático</label><input id="xM3" type="date" value="${h.th||""}"></div></div>
       <button class="btn" onclick="salvaEdEquip('hid','${h.pat}')">💾 Salvar</button>
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('hid','${h.pat}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
     $("dlg").showModal();};
 window.salvaEdEquip=(t,id)=>{
-  if(t==="ext")CADX.extEdit[id]={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
-  else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
+  if(t==="ext")CADX.extEdit[id]={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
+  else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
   salvaCADX("editar_equipamento",{t,id});};
 window.removeEquip=(t,id)=>{
   if(!confirm("Remover este equipamento do cadastro? As inspeções antigas dele continuam no histórico."))return;
   if(t==="ext")CADX.extDel.push(id);else CADX.hidDel.push(id);
   salvaCADX("remover_equipamento",{t,id});};
+
+/* ---------- Revisão em lote do pool de reserva (admin) ----------
+   Lista todos os extintores marcados como reserva, com caixa de marcação,
+   para excluir de uma vez os que não existem mais fisicamente (ex.: cadastro
+   antigo importado da Engex com itens já descartados/substituídos). */
+window.revisarReservas=()=>{
+  if(!ISADMIN)return;
+  const lista=CAD.ext.filter(isReserva).sort((a,b)=>String(a.num??"").localeCompare(String(b.num??""),"pt",{numeric:true}));
+  if(!lista.length)return toast("Não há nenhum cilindro no pool de reserva.");
+  const linha=e=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--borda);font-size:13px">
+      <input type="checkbox" class="rvChk" value="${esc(String(e.seq))}" style="width:auto">
+      <span>Nº ${esc(String(e.num??"—"))} — ${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}${e.fab?` · fab. ${esc(String(e.fab))}`:""}${ehCondenado(e)?' <b style="color:var(--cd)">⛔ já condenado</b>':""}</span>
+    </label>`;
+  $("dlgBody").innerHTML=`<h3>🧹 Revisar pool de reserva (${lista.length})</h3>
+    <p style="font-size:12.5px;color:var(--cinza);margin-bottom:6px">Marque os cilindros que <b>não existem mais fisicamente</b> e toque em "Remover selecionados". As inspeções antigas deles continuam no histórico — isto só tira o item das listas e contagens atuais.</p>
+    <label>Filtrar por nº / agente</label><input id="rvBusca" oninput="rvFiltra()" placeholder="Digite para filtrar a lista…">
+    <div style="display:flex;gap:8px;margin:6px 0">
+      <button type="button" class="btn sec" style="flex:1" onclick="rvMarcaTodos(true)">Marcar todos (visíveis)</button>
+      <button type="button" class="btn sec" style="flex:1" onclick="rvMarcaTodos(false)">Desmarcar todos</button>
+    </div>
+    <div id="rvLista" style="max-height:45vh;overflow:auto;margin:6px 0">${lista.map(linha).join("")}</div>
+    <button class="btn" style="border-color:var(--cd);color:var(--cd)" onclick="removerReservasSelecionadas()">🗑️ Remover selecionados</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("dlg").showModal();};
+window.rvFiltra=()=>{
+  const v=$("rvBusca").value.trim().toLowerCase();
+  [...document.querySelectorAll("#rvLista label")].forEach(l=>{
+    l.style.display=(!v||l.textContent.toLowerCase().includes(v))?"flex":"none";});};
+window.rvMarcaTodos=marca=>{
+  [...document.querySelectorAll("#rvLista label")].forEach(l=>{
+    if(l.style.display==="none")return;
+    const c=l.querySelector(".rvChk");if(c)c.checked=marca;});};
+window.removerReservasSelecionadas=()=>{
+  const sel=[...document.querySelectorAll(".rvChk:checked")].map(c=>c.value);
+  if(!sel.length)return toast("Marque ao menos um cilindro para remover.");
+  if(!confirm(`Remover ${sel.length} cilindro(s) do pool de reserva? As inspeções antigas deles continuam no histórico.`))return;
+  sel.forEach(seq=>{if(!CADX.extDel.map(String).includes(String(seq)))CADX.extDel.push(String(seq));});
+  salvaCADX("remover_reservas_em_lote",{qtd:sel.length});};
 
 /* ---------- Lote: importação e correção de extintores por planilha (admin) ---------- */
 const LOTE_COLS_EXT=["Nº","Patrimônio","Agente (CO2/AP/BC/EM/ABC)","Carga","Localização","Fabricação (ano)","Fabricante","Próx. Man. 2º Nível","Próx. Man. 3º Nível"];
@@ -2824,7 +2867,7 @@ window.corrigirLote=()=>{
   if(!ISADMIN)return;
   $("dlgBody").innerHTML=`<h3>🛠️ Corrigir cadastro em lote</h3>
     ${seletorLoteTipo}
-    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe o cadastro atual.<br>2) Corrija o que precisar na planilha — <b>não altere a 1ª coluna</b> (Seq/Patrimônio, é a chave). Célula em branco = mantém o valor atual.<br>3) Envie o arquivo corrigido e toque em Aplicar.</p>
+    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe o cadastro atual.<br>2) Corrija o que precisar na planilha — <b>não altere a 1ª coluna</b> (Seq/Patrimônio, é a chave). Célula em branco = mantém o valor atual.<br>3) Para excluir um item que não existe mais fisicamente (ex.: reserva da lista antiga que já foi descartada), escreva <b>S</b> na última coluna "Remover?" daquela linha.<br>4) Envie o arquivo corrigido e toque em Aplicar.</p>
     <button class="btn sec" onclick="exportCadLote()">⬇️ Baixar cadastro atual (.xlsx)</button>
     <label>Arquivo corrigido (.xlsx)</label><input id="lFile" type="file" accept=".xlsx">
     <button class="btn" onclick="processaLote('edit')">🛠️ Aplicar correções</button>
@@ -2843,11 +2886,11 @@ window.exportCadLote=async()=>{
   const tq=$("lTipoEq").value;
   const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet("Cadastro");
   if(tq==="ext"){
-    ws.addRow(["Seq (não alterar)",...LOTE_COLS_EXT]);
-    CAD.ext.forEach(e=>ws.addRow([e.seq,e.num??"",e.pat??"",e.agp??"",e.cgp??"",e.loc??"",e.fab??"",e.fabricante??"",fmtBR(e.man2),fmtBR(e.man3)]));
+    ws.addRow(["Seq (não alterar)",...LOTE_COLS_EXT,"Remover? (S/N)"]);
+    CAD.ext.forEach(e=>ws.addRow([e.seq,e.num??"",e.pat??"",e.agp??"",e.cgp??"",e.loc??"",e.fab??"",e.fabricante??"",fmtBR(e.man2),fmtBR(e.man3),""]));
   }else{
-    ws.addRow(["Patrimônio (não alterar)","Tipo","Capacidade","Localização","Fabricação (ano)","Fabricante","Próx. Manutenção","Próx. T. Hidrostático"]);
-    CAD.hid.forEach(h=>ws.addRow([h.pat,h.tipo??"",h.cap??"",h.loc??"",h.fab??"",h.fabricante??"",fmtBR(h.man),fmtBR(h.th)]));
+    ws.addRow(["Patrimônio (não alterar)","Tipo","Capacidade","Localização","Fabricação (ano)","Fabricante","Próx. Manutenção","Próx. T. Hidrostático","Remover? (S/N)"]);
+    CAD.hid.forEach(h=>ws.addRow([h.pat,h.tipo??"",h.cap??"",h.loc??"",h.fab??"",h.fabricante??"",fmtBR(h.man),fmtBR(h.th),""]));
   }
   ws.getRow(1).font={bold:true};ws.columns.forEach(c=>c.width=20);
   await baixaXLSX(wb,`cadastro_${tq==="ext"?"extintores":"hidrantes"}_para_correcao.xlsx`);
@@ -2859,7 +2902,8 @@ window.processaLote=async modo=>{
   try{
     const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());
     const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
-    let add=0,edit=0;const pulos=[];
+    let add=0,edit=0,rem=0;const pulos=[];
+    const querRemover=v=>/^(s|sim|x)$/i.test(cellStr(v));
     let seqNext=tq==="ext"?proxSeqExt()
       :Math.max(0,...CAD0.hid.map(e=>+e.seq||0),...CAD.hid.map(e=>+e.seq||0),...CADX.hidAdd.map(e=>+e.seq||0))+1;
     ws.eachRow((row,rn)=>{
@@ -2880,6 +2924,10 @@ window.processaLote=async modo=>{
           const seq=cellStr(row.getCell(1).value);
           const e=CAD.ext.find(x=>String(x.seq)===String(seq));
           if(!e){pulos.push(`linha ${rn}: Seq "${seq||"?"}" não encontrado`);return;}
+          if(querRemover(row.getCell(LOTE_COLS_EXT.length+2).value)){
+            if(!CADX.extDel.map(String).includes(String(seq)))CADX.extDel.push(String(seq));
+            rem++;return;
+          }
           const nv={};
           if(num)nv.num=num;if(pat)nv.pat=pat;if(agp)nv.agp=agp;if(cgp)nv.cgp=cgp;if(locRaw)nv.loc=locRaw;
           if(fab)nv.fab=+fab||null;if(fabr)nv.fabricante=fabr;if(man2)nv.man2=man2;if(man3)nv.man3=man3;
@@ -2901,6 +2949,10 @@ window.processaLote=async modo=>{
           seqNext++;add++;
         }else{
           if(!h){pulos.push(`linha ${rn}: ${pat} não encontrado`);return;}
+          if(querRemover(row.getCell(LOTE_COLS_HID.length+2).value)){
+            if(!CADX.hidDel.map(String).includes(String(pat)))CADX.hidDel.push(String(pat));
+            rem++;return;
+          }
           const nv={};
           if(tipo)nv.tipo=tipo;if(cap)nv.cap=cap;if(locRaw)nv.loc=locRaw;
           if(fab)nv.fab=+fab||null;if(fabr)nv.fabricante=fabr;if(man)nv.man=man;if(th)nv.th=th;
@@ -2909,12 +2961,12 @@ window.processaLote=async modo=>{
         }
       }});
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
-    if(modo==="edit"&&!edit)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
+    if(modo==="edit"&&!edit&&!rem)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
     await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();
-    audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,ignoradas:pulos.slice(0,10)});
+    audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)});
     $("dlg").close();
-    toast(`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
+    toast(`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
   }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Export Excel (idêntico ao modelo) ---------- */
