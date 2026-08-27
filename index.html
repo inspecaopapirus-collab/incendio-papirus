@@ -1294,7 +1294,7 @@ window.confirmaCorrecaoLocal=async()=>{
   if(dX.num){                /* o que constava aqui vira reserva */
     const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
     if(slot)OVR[String(slot.seq)]=dX;
-    else{CADX.extAdd.push({seq:proxSeqExt(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
+    else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
   }
   try{
     await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
@@ -2700,7 +2700,30 @@ window.novoEquip=t=>{
     <div class="row"><div><label>Próx. Manutenção</label><input id="cM2" type="date"></div><div><label>Próx. T. Hidrostático</label><input id="cM3" type="date"></div></div>
     <button class="btn" onclick="salvaNovoHid()">Salvar</button><button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
-const proxSeqExt=()=>Math.max(0,...CAD0.ext.map(e=>+e.seq||0),...CAD.ext.map(e=>+e.seq||0),...CADX.extAdd.map(e=>+e.seq||0))+1;
+/* ---------- Numeração de IDs de extintor ----------
+   Regra: os IDs devem ficar SEM buracos. Antes, o próximo ID era sempre
+   "maior já usado + 1", então todo ID retirado do cadastro virava um vão
+   permanente (era o que gerava 225 → 243 → 309…).
+   Agora reaproveitamos o primeiro ID livre, com uma trava: um ID que já tem
+   histórico gravado (inspeção, movimentação ou condenação) NUNCA é reciclado,
+   senão dois cilindros diferentes dividiriam o mesmo histórico. */
+const seqsComHistoricoExt=()=>{
+  const s=new Set();
+  ITENS.forEach(i=>{if(i.tipo==="ext"&&i.eqSeq!=null)s.add(+i.eqSeq);});
+  MOVS.forEach(m=>{if(m.posicao!=null)s.add(+m.posicao);});
+  CONDS.forEach(c=>{if(c.seqOrigem!=null)s.add(+c.seqOrigem);});
+  return s;};
+const seqsOcupadosExt=()=>new Set([...CAD.ext.map(e=>+e.seq||0),...CADX.extAdd.map(e=>+e.seq||0)]);
+/* teto dos locais fixos: acima dele fica o pool de reserva */
+const tetoFixoExt=()=>Math.max(0,...CAD.ext.filter(e=>!isReserva(e)).map(e=>+e.seq||0));
+/* primeiro ID livre a partir de 1 (uso geral: novo local / novo extintor) */
+const proxSeqExt=()=>{
+  const usados=seqsOcupadosExt(),hist=seqsComHistoricoExt();
+  let n=1;while(usados.has(n)||hist.has(n))n++;return n;};
+/* primeiro ID livre do pool de RESERVA (sempre acima do último local fixo) */
+const proxSeqReserva=()=>{
+  const usados=seqsOcupadosExt(),hist=seqsComHistoricoExt();
+  let n=tetoFixoExt()+1;while(usados.has(n)||hist.has(n))n++;return n;};
 window.salvaNovoExt=async()=>{
   if(!podeGravar())return;
   const loc=$("cLoc").value.trim()||"Reserva";
@@ -2710,7 +2733,7 @@ window.salvaNovoExt=async()=>{
   const want=parseInt($("cSeq").value,10);
   const existe=want&&CAD.ext.find(x=>+x.seq===want);
   if(!want||!existe){
-    novo.seq=want||proxSeqExt();if(!novo.pat)novo.pat=novo.seq;
+    novo.seq=want||(isReserva(novo)?proxSeqReserva():proxSeqExt());if(!novo.pat)novo.pat=novo.seq;
     CADX.extAdd.push(novo);
     return salvaCADX("novo_extintor",{seq:novo.seq,num:novo.num});}
   /* ID já existe: insere neste ponto e renumera os locais seguintes (+1) */
@@ -2904,7 +2927,8 @@ window.processaLote=async modo=>{
     const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
     let add=0,edit=0,rem=0;const pulos=[];
     const querRemover=v=>/^(s|sim|x)$/i.test(cellStr(v));
-    let seqNext=tq==="ext"?proxSeqExt()
+    /* extintor: o ID é alocado linha a linha (ver adiante). Hidrante segue o esquema antigo. */
+    let seqNext=tq==="ext"?0
       :Math.max(0,...CAD0.hid.map(e=>+e.seq||0),...CAD.hid.map(e=>+e.seq||0),...CADX.hidAdd.map(e=>+e.seq||0))+1;
     ws.eachRow((row,rn)=>{
       if(rn===1)return;
@@ -2917,9 +2941,13 @@ window.processaLote=async modo=>{
         if(/EXEMPLO/i.test(locRaw))return;
         if(modo==="add"){
           if(num&&CAD.ext.find(e=>String(e.num)===num)){pulos.push(`linha ${rn}: Nº ${num} já cadastrado`);return;}
-          CADX.extAdd.push({seq:seqNext,num:num||null,pat:pat||seqNext,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
+          /* um ID por vez: proxSeq* já enxerga o que foi empurrado nas linhas
+             anteriores deste mesmo lote, então não há colisão ao reaproveitar vãos */
+          const ehReserva=!locRaw||/^\s*reserva/i.test(locRaw);
+          const seqNovo=ehReserva?proxSeqReserva():proxSeqExt();
+          CADX.extAdd.push({seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
             loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3});
-          seqNext++;add++;
+          add++;
         }else{
           const seq=cellStr(row.getCell(1).value);
           const e=CAD.ext.find(x=>String(x.seq)===String(seq));
