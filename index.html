@@ -76,7 +76,13 @@ img{max-width:100%}
 .item h3{font-size:14px;font-weight:700;margin:7px 0 3px;letter-spacing:-.2px}
 .item p{font-size:12.5px;color:var(--cinza);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.5}
 .meta{font-size:11px;color:#a08a8a;margin-top:5px}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
+.tabWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tabEq{border-collapse:collapse;width:100%;font-size:12.5px;min-width:760px}
+.tabEq th{background:#f8fafc;text-align:left;padding:8px 9px;border-bottom:2px solid var(--borda);
+  font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--cinza);white-space:nowrap}
+.tabEq td{padding:8px 9px;border-bottom:1px solid var(--borda);white-space:nowrap}
+.tabEq tr:hover td{background:#fafafa}
 .kpi{background:#fff;border:1px solid var(--borda);border-radius:16px;padding:16px 8px;text-align:center;box-shadow:var(--sombra);border-top:3px solid var(--acc)}
 .kpi b{font-size:24px;font-weight:800;background:linear-gradient(135deg,#dc2626,var(--vinho));-webkit-background-clip:text;background-clip:text;color:transparent;display:block;letter-spacing:-1px}
 .kpi span{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--cinza)}
@@ -180,6 +186,7 @@ dialog::backdrop{background:rgba(50,10,10,.5);backdrop-filter:blur(3px)}
 /* ---------- Selo de condenado ---------- */
 .b-cond{background:var(--cd)!important}
 .b-engex{background:var(--warn)!important;color:#7a4a00!important}
+.b-manut{background:#7c3aed!important;color:#fff!important}
 .boxCond{background:#faf0f0;border:1px solid #e6c9c9;border-left:4px solid var(--cd);border-radius:12px;
   padding:13px;font-size:13px;line-height:1.75;margin-top:12px}
 .boxCond b{color:var(--cd)}
@@ -363,7 +370,8 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="subtabs" role="tablist" aria-label="Seções do painel">
  <button class="on" data-p="pResumo" onclick="subtab(this)" role="tab" aria-selected="true">Resumo</button>
  <button data-p="pRel" onclick="subtab(this)" role="tab" aria-selected="false">Relatórios</button>
- <button class="adminOnly hidden" data-p="pAdm" onclick="subtab(this)" role="tab" aria-selected="false">⚙️ Admin</button>
+ <button data-p="pEquip" onclick="subtab(this)" role="tab" aria-selected="false">🧯 Equipamentos</button>
+ <button data-p="pAdm" onclick="subtab(this)" role="tab" aria-selected="false">⚙️ Cadastro</button>
  </div>
 
  <!-- ---------- Resumo ---------- -->
@@ -376,8 +384,10 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="kpi"><b id="kPend">0</b><span>Pendentes</span></div>
  <div class="kpi"><b id="kNC">0</b><span>Não conformes</span></div>
  <div class="kpi"><b id="kDiv">0</b><span>Divergências</span></div>
+ <div class="kpi" style="border-top-color:#7c3aed"><b id="kManut">0</b><span>Em manutenção</span></div>
  </div>
  <div class="card hidden" id="posBox"></div>
+ <div class="card hidden" id="manutBox"></div>
  <div class="card hidden" id="engexBox"></div>
  <div class="card" id="pendBox"></div>
  <details class="dobra">
@@ -411,20 +421,45 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </div>
  </div>
 
+ <!-- ---------- Lista de equipamentos ---------- -->
+ <div id="pEquip" class="hidden">
+ <div class="card">
+ <b>🧯 Lista de equipamentos</b>
+ <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Cadastro completo, com a data da última inspeção registrada de cada equipamento. Toque em uma linha para abrir o equipamento.</p>
+ <div class="filters">
+ <select id="eqTipo" onchange="renderEquip()" aria-label="Tipo de equipamento">
+ <option value="ext">🧯 Extintores</option>
+ <option value="hid">🚒 Hidrantes</option>
+ </select>
+ <select id="eqSit" onchange="renderEquip()" aria-label="Situação">
+ <option value="">Situação: todas</option>
+ <option value="area">Em área</option>
+ <option value="reserva">Reserva</option>
+ <option value="manut">Em manutenção</option>
+ <option value="cond">Condenados</option>
+ </select>
+ <input id="eqBusca" placeholder="Buscar nº, patrimônio ou local…" oninput="renderEquip()">
+ </div>
+ <button class="btn sec" onclick="exportEquipXLSX()">⬇️ Exportar lista em Excel</button>
+ </div>
+ <div class="card" id="eqLista"></div>
+ </div>
+
  <!-- ---------- Administração ---------- -->
  <div id="pAdm" class="hidden">
- <div class="card adminOnly hidden" id="adminBox">
+ <div class="card" id="adminBox">
  <b>🧯 Cadastro de equipamentos</b>
+ <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Todo cadastro fica registrado na auditoria com o nome de quem fez.</p>
  <div class="btngrid">
  <button class="btn sec" onclick="novoEquip('ext')">➕ Novo extintor</button>
  <button class="btn sec" onclick="novoEquip('hid')">➕ Novo hidrante</button>
  <button class="btn sec" onclick="novoLocal()">📍 Novo local (posição vazia)</button>
- <button class="btn sec" onclick="editarEquip()">✏️ Editar / remover equip.</button>
- <button class="btn sec" onclick="importarLote()">📥 Importar em lote</button>
- <button class="btn sec" onclick="corrigirLote()">🛠️ Corrigir em lote</button>
- <button class="btn sec" onclick="revisarReservas()">🧹 Revisar pool de reserva</button>
  <button class="btn sec" onclick="etiquetasQR()">🏷️ Etiquetas QR</button>
- <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
+ <button class="btn sec adminOnly hidden" onclick="editarEquip()">✏️ Editar / remover equip.</button>
+ <button class="btn sec adminOnly hidden" onclick="importarLote()">📥 Importar em lote</button>
+ <button class="btn sec adminOnly hidden" onclick="corrigirLote()">🛠️ Corrigir em lote</button>
+ <button class="btn sec adminOnly hidden" onclick="revisarReservas()">🧹 Revisar pool de reserva</button>
+ <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
  </div>
  </div>
  <div class="card adminOnly hidden">
@@ -555,6 +590,10 @@ function normRota(loc){
   const found=ROTA_CANON.find(c=>chaveRota(c)===k);
   return found||raw;}
 const isReserva=e=>/^\s*reserva/i.test(String(e?.loc||""));
+/* Cilindro que saiu do local para recarga e ainda não voltou — está fisicamente
+   na Engex, então não pode ser escolhido como reserva nem entra na rota do mês.
+   Sai desse estado pelo botão "Registrar retorno da recarga". */
+const emManutencao=e=>!!(e&&e.manut);
 
 /* ================= Condenação de cilindros =================
    Um cilindro condenado continua no cadastro, mas o sistema para de oferecê-lo:
@@ -620,7 +659,9 @@ function labelEq(e){return TIPO==="ext"
 function itemBusca(e){
   if(TIPO!=="ext")
     return `<span class="t">${esc(e.pat)}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;
-  const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`:(e.engex?` <span class="badge b-engex">🏢 ENGEX</span>`:"");
+  const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`
+    :(emManutencao(e)?` <span class="badge b-manut">🔧 EM MANUTENÇÃO</span>`
+    :(e.engex?` <span class="badge b-engex">🏢 ENGEX</span>`:""));
   if(isReserva(e))
     return `<span class="t">Nº ${esc(String(e.num??"—"))}${selo}</span>`
       +`<span class="s">${e.num?`${esc(e.tipo||"")} ${esc(String(e.carga??""))} · pool de reserva`:"vaga de reserva vazia"}</span>`;
@@ -693,6 +734,8 @@ function mostraPadrao(){
       ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro Engex ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
       ${isReserva(EQ)&&!cd?`<br><span class="badge" style="background:var(--cinza2);margin-top:8px">RESERVA</span>`:""}
       ${EQ.engex&&!cd?`<br><span class="badge b-engex" style="margin-top:8px">🏢 RESERVA ENGEX desde ${fmtBR(EQ.engexDesde)}</span>`:""}
+      ${emManutencao(EQ)&&!cd?`<br><span class="badge b-manut" style="margin-top:8px">🔧 EM MANUTENÇÃO desde ${fmtBR(EQ.manutDesde)}</span>
+        <br><small style="color:var(--cinza)">Saiu de ${EQ.manutDe?`Ext ${esc(String(EQ.manutDe))}`:"—"}${EQ.manutLoc?` — ${esc(String(EQ.manutLoc))}`:""} para recarga. Use "Ações do equipamento" → "Registrar retorno da recarga" quando ele voltar.</small>`:""}
       ${cxCond}${acoes}`
     :`<span class="lock">🔒 padrão travado</span>Patrimônio: <b>${esc(String(EQ.pat))}</b> · Tipo: <b>${esc(String(EQ.tipo??"—"))}</b> · Capacidade: <b>${esc(String(EQ.cap??"—"))}</b><br>
       Fabricação: <b>${esc(String(EQ.fab??"—"))}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
@@ -726,6 +769,8 @@ window.acoesEquip=()=>{
   const arg=v=>"'"+String(v).replace(/['\\\\]/g,"")+"'";
   if(ext&&!isReserva(EQ)&&!cd&&EQ.num)
     L.push(`<button class="btn sec" onclick="${ir("abrirTroca")}">🔁 Substituir por reserva (recarga)</button>`);
+  if(ext&&emManutencao(EQ))
+    L.push(`<button class="btn" style="background:#7c3aed" onclick="${ir("voltouRecarga")}">🔧 Registrar retorno da recarga</button>`);
   if(ext&&!isReserva(EQ)&&!cd)
     L.push(`<button class="btn sec" style="border-color:var(--warn);color:#92400e" onclick="${ir("toggleEngex")}">${EQ.engex?"↩️ Desmarcar reserva Engex":"🏢 Marcar como reserva Engex"}</button>`);
   if(ext&&ISADMIN&&!isReserva(EQ)&&!cd)
@@ -838,7 +883,8 @@ window.tab=btn=>{document.querySelectorAll("nav button").forEach(b=>b.classList.
 window.subtab=btn=>{
   document.querySelectorAll(".subtabs button").forEach(b=>{
     b.classList.toggle("on",b===btn);b.setAttribute("aria-selected",b===btn?"true":"false");});
-  ["pResumo","pRel","pAdm"].forEach(p=>$(p).classList.toggle("hidden",p!==btn.dataset.p));};
+  ["pResumo","pRel","pEquip","pAdm"].forEach(p=>$(p).classList.toggle("hidden",p!==btn.dataset.p));
+  if(btn.dataset.p==="pEquip")renderEquip();};
 
 /* meses p/ painel */
 function fillMeses(){
@@ -1211,8 +1257,9 @@ function renderMovs(){
 window.abrirTroca=()=>{
   if(!EQ||TIPO!=="ext")return;
   /* cilindro condenado não pode voltar para nenhuma posição */
-  const reservas=CAD.ext.filter(e=>isReserva(e)&&e.seq!==EQ.seq&&e.num&&!ehCondenado(e));
-  const outros=CAD.ext.filter(e=>!isReserva(e)&&e.seq!==EQ.seq&&e.num&&!ehCondenado(e));
+  /* cilindro em manutenção está fisicamente na Engex — não pode ser colocado em nenhum local */
+  const reservas=CAD.ext.filter(e=>isReserva(e)&&e.seq!==EQ.seq&&e.num&&!ehCondenado(e)&&!emManutencao(e));
+  const outros=CAD.ext.filter(e=>!isReserva(e)&&e.seq!==EQ.seq&&e.num&&!ehCondenado(e)&&!emManutencao(e));
   if(!reservas.length&&!outros.length)return toast("Nenhum outro extintor disponível.");
   $("dlgBody").innerHTML=`
     <h3>🔁 Substituição por reserva</h3>
@@ -1314,7 +1361,7 @@ window.trFiltra=()=>{
   const v=$("trBusca").value.trim().toLowerCase();const list=$("trList");
   if(!v){list.classList.add("hidden");list.innerHTML="";return;}
   const digitos=/^\d+$/.test(v);
-  const cands=CAD.ext.filter(e=>String(e.seq)!==String(EQ.seq)&&e.num&&!ehCondenado(e)&&(digitos
+  const cands=CAD.ext.filter(e=>String(e.seq)!==String(EQ.seq)&&e.num&&!ehCondenado(e)&&!emManutencao(e)&&(digitos
     ?String(e.num).startsWith(v)
     :`${e.num} ${e.tipo||""} ${e.loc||""}`.toLowerCase().includes(v))).slice(0,20);
   list.innerHTML=cands.length?cands.map(e=>
@@ -1358,7 +1405,13 @@ window.confirmaTroca=async()=>{
   const eraReserva=isReserva(r);
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const doEQ={},doR={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;doR[c]=r[c]??null;});
-  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...doR};}OVR[String(r.seq)]=doEQ;
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...doR};}
+  /* Se quem entrou veio do pool de reserva, o cilindro que saiu foi para RECARGA:
+     fica marcado como em manutenção até alguém registrar o retorno.
+     Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
+  OVR[String(r.seq)]=eraReserva
+    ?{...doEQ,manut:true,manutDesde:new Date().toISOString().slice(0,10),manutDe:EQ.seq,manutLoc:EQ.loc||""}
+    :doEQ;
   try{
     await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
     await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
@@ -1368,8 +1421,178 @@ window.confirmaTroca=async()=>{
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
-    toast(eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} virou reserva.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
+    toast(eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} foi para manutenção/recarga.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
   }catch(e){toast("Erro na substituição: "+e.message);}};
+
+/* ---------- Retorno da recarga ----------
+   Fecha o ciclo aberto pela substituição por reserva: o cilindro volta da Engex,
+   deixa de estar "em manutenção" e volta a ficar disponível no pool.
+   As datas de próxima manutenção vêm do certificado que a Engex devolve, por isso
+   ficam editáveis — o 2º nível vem pré-preenchido com um ano a partir do retorno. */
+const somaAnos=(iso,n)=>{
+  const d=iso?new Date(iso+"T12:00:00"):new Date();
+  d.setFullYear(d.getFullYear()+n);
+  return d.toISOString().slice(0,10);};
+window.voltouRecarga=()=>{
+  if(!EQ||TIPO!=="ext"||!emManutencao(EQ))return;
+  const hoje=new Date().toISOString().slice(0,10);
+  $("dlgBody").innerHTML=`<h3>🔧 Registrar retorno da recarga</h3>
+    <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Cilindro <b>Nº ${esc(String(EQ.num??"—"))}</b>
+      (${esc(String(EQ.tipo||EQ.agp||"—"))} ${esc(String(EQ.carga??EQ.cgp??""))})<br>
+      Saiu de <b>${EQ.manutDe?`Ext ${esc(String(EQ.manutDe))}`:"—"}</b>${EQ.manutLoc?` — ${esc(String(EQ.manutLoc))}`:""}
+      em <b>${fmtBR(EQ.manutDesde)}</b></p>
+    <label>Data do retorno</label>
+    <input id="rcData" type="date" value="${hoje}" max="${hoje}">
+    <div class="row">
+      <div><label>Próx. Man. 2º Nível</label><input id="rcM2" type="date" value="${somaAnos(hoje,1)}"></div>
+      <div><label>Próx. Man. 3º Nível</label><input id="rcM3" type="date" value="${EQ.man3||""}"></div>
+    </div>
+    <p style="font-size:11.5px;color:var(--cinza2);margin:6px 0 0">Confira as duas datas no certificado devolvido pela Engex antes de confirmar.</p>
+    <button class="btn" onclick="confirmaRetornoRecarga()">✅ Confirmar retorno</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("dlg").showModal();};
+window.confirmaRetornoRecarga=async()=>{
+  if(!podeGravar())return;
+  if(!EQ||!emManutencao(EQ)){$("dlg").close();return toast("A tela foi atualizada em segundo plano. Abra o cilindro de novo.");}
+  const seq=String(EQ.seq),num=EQ.num;
+  const dt=$("rcData").value||new Date().toISOString().slice(0,10);
+  const m2=$("rcM2").value||null,m3=$("rcM3").value||null;
+  const anterior={...(OVR[seq]||{})};
+  const novo={...anterior};
+  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{delete novo[k];});
+  novo.man2=m2;novo.man3=m3;
+  OVR[seq]=novo;
+  try{
+    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
+    audit("retorno_recarga",{seq,num,retorno:dt,man2:m2,man3:m3});
+    aplicaOvr();
+    $("dlg").close();
+    toast(`✅ Nº ${num} voltou da recarga — disponível como reserva.`);
+  }catch(e){
+    OVR[seq]=anterior;                       /* devolve o estado anterior se a gravação falhar */
+    toast("Erro ao registrar o retorno: "+e.message);}};
+
+/* ================= Lista de equipamentos (consulta + Excel) =================
+   Fonte única para a tela e para o Excel, para os dois nunca divergirem.
+   A última inspeção do extintor é buscada pelo Nº do cilindro (o equipamento é o
+   cilindro, que muda de posição), e a do hidrante pelo patrimônio. */
+function ultimaInspecaoDe(tipo,eq){
+  let melhor="";
+  if(tipo==="ext"){
+    const k=chaveCil(eq.num);
+    if(!k)return "";
+    ITENS.forEach(i=>{
+      if(i.tipo!=="ext"||i.eqNum==null)return;
+      if(chaveCil(i.eqNum)!==k)return;
+      const d=String(i.data||"");if(d>melhor)melhor=d;});
+  }else{
+    const k=String(eq.pat??"").trim().toUpperCase();
+    if(!k)return "";
+    ITENS.forEach(i=>{
+      if(i.tipo!=="hid"||i.eqPat==null)return;
+      if(String(i.eqPat).trim().toUpperCase()!==k)return;
+      const d=String(i.data||"");if(d>melhor)melhor=d;});
+  }
+  return melhor;}
+function situacaoDe(tipo,e){
+  if(tipo==="ext"){
+    if(ehCondenado(e))return {k:"cond",txt:"Condenado",badge:"b-cond"};
+    if(emManutencao(e))return {k:"manut",txt:"Em manutenção",badge:"b-manut"};
+    if(isReserva(e))return {k:"reserva",txt:"Reserva",badge:""};
+    return {k:"area",txt:"Em área",badge:""};}
+  return {k:"area",txt:"Em área",badge:""};}
+/* devolve as linhas já filtradas, prontas para a tela e para o Excel */
+function linhasEquip(){
+  const tipo=($("eqTipo")&&$("eqTipo").value)||"ext";
+  const sit=($("eqSit")&&$("eqSit").value)||"";
+  const q=(($("eqBusca")&&$("eqBusca").value)||"").trim().toLowerCase();
+  const base=tipo==="ext"?CAD.ext:CAD.hid;
+  const linhas=base.map(e=>{
+    const s=situacaoDe(tipo,e);
+    return {
+      eq:e,tipo,sit:s,
+      id:tipo==="ext"?e.seq:e.pat,
+      num:tipo==="ext"?(e.num??""):(e.pat??""),
+      agente:tipo==="ext"?(e.tipo||e.agp||""):(e.tipo??""),
+      carga:tipo==="ext"?(e.carga??e.cgp??""):(e.cap??""),
+      fabricante:e.fabricante||"",
+      fab:e.fab??"",
+      loc:e.loc||"",
+      ultInsp:ultimaInspecaoDe(tipo,e),
+      m2:tipo==="ext"?(e.man2||""):(e.man||""),
+      m3:tipo==="ext"?(e.man3||""):(e.th||""),
+    };});
+  return linhas.filter(l=>{
+    if(sit&&l.sit.k!==sit)return false;
+    if(!q)return true;
+    return `${l.num} ${l.id} ${l.agente} ${l.carga} ${l.fabricante} ${l.loc}`.toLowerCase().includes(q);
+  }).sort((a,b)=>(+a.id||0)-(+b.id||0)||String(a.id).localeCompare(String(b.id)));}
+window.renderEquip=()=>{
+  const cx=$("eqLista");if(!cx)return;
+  const tipo=($("eqTipo")&&$("eqTipo").value)||"ext";
+  const L=linhasEquip();
+  if(!L.length){
+    cx.innerHTML=`<div class="vazio"><span class="ic">🔍</span><b>Nenhum equipamento com esse filtro</b><p>Ajuste a busca ou a situação acima.</p></div>`;return;}
+  const ext=tipo==="ext";
+  const cab=ext
+    ?["Local","Nº cilindro","Agente","Carga","Fabricante","Fabricação","Últ. inspeção","Man. 2º nível","Man. 3º nível","Situação"]
+    :["ID","Patrimônio","Tipo","Capacidade","Fabricante","Fabricação","Últ. inspeção","Próx. manut.","Próx. T. hidrost.","Situação"];
+  const idDe=l=>ext?(isReserva(l.eq)?`Reserva ${l.id}`:`Ext ${l.id}`):String(l.id);
+  cx.innerHTML=`<b>${ext?"🧯 Extintores":"🚒 Hidrantes"} — ${L.length} ${L.length===1?"equipamento":"equipamentos"}</b>
+    ${TRUNCADO?`<p style="font-size:11.5px;color:var(--warn);margin:6px 0 0">⚠️ O histórico carregado está limitado às ${LIMITE_INSP} inspeções mais recentes — datas de última inspeção muito antigas podem aparecer em branco.</p>`:""}
+    <div class="tabWrap" style="margin-top:10px"><table class="tabEq">
+    <thead><tr>${cab.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+    <tbody>${L.map(l=>`<tr style="cursor:pointer" onclick="irPara('${l.tipo}','${String(l.id).replace(/'/g,"")}')">
+      <td>${esc(idDe(l))}</td>
+      <td><b>${esc(String(l.num||"—"))}</b></td>
+      <td>${esc(String(l.agente||"—"))}</td>
+      <td>${esc(String(l.carga||"—"))}</td>
+      <td>${esc(String(l.fabricante||"—"))}</td>
+      <td>${l.fab?esc(String(l.fab)):"—"}</td>
+      <td>${l.ultInsp?fmtBR(l.ultInsp):"—"}</td>
+      <td>${l.m2?fmtBR(l.m2):"—"}</td>
+      <td>${l.m3?fmtBR(l.m3):"—"}</td>
+      <td>${l.sit.badge?`<span class="badge ${l.sit.badge}">${l.sit.txt}</span>`:esc(l.sit.txt)}</td>
+    </tr>`).join("")}</tbody></table></div>
+    <p style="font-size:11.5px;color:var(--cinza2);margin-top:8px">${ext?"Local vazio aparece com Nº “—”.":""}</p>`;};
+window.exportEquipXLSX=async()=>{
+  const tipo=($("eqTipo")&&$("eqTipo").value)||"ext";
+  const L=linhasEquip();
+  if(!L.length)return toast("Nenhum equipamento com esse filtro para exportar.");
+  const ext=tipo==="ext";
+  toast("Gerando a planilha…");
+  const wb=new ExcelJS.Workbook();
+  const ws=wb.addWorksheet(ext?"Extintores":"Hidrantes");
+  const hoje=new Date().toLocaleDateString("pt-BR");
+  const cols=ext
+    ?["Local","Nº do cilindro","Agente extintor","Carga","Fabricante","Data de fabricação","Última inspeção","Próx. Man. 2º Nível","Próx. Man. 3º Nível","Situação"]
+    :["ID","Patrimônio","Tipo","Capacidade","Fabricante","Data de fabricação","Última inspeção","Próx. Manutenção","Próx. T. Hidrostático","Situação"];
+  cabecalho(ws,`Lista de Equipamentos — ${ext?"Extintores":"Hidrantes"}  `,cols.length,new Date().toISOString().slice(0,7),hoje);
+  cols.forEach((c,i)=>{const cell=ws.getRow(9).getCell(i+1);cell.value=c;headerCell(cell,false);});
+  ws.getRow(9).height=30;
+  setWidths(ws,{A:16,B:16,C:16,D:12,E:18,F:16,G:14,H:16,I:16,J:16});
+  ws.views=[{state:"frozen",ySplit:9}];
+  let r=10;
+  for(const l of L){
+    const row=ws.getRow(r);
+    row.values=[ext?(isReserva(l.eq)?`Reserva ${l.id}`:`Ext ${l.id} — ${l.loc}`):String(l.id),
+      l.num===""?"":String(l.num),l.agente||"",l.carga||"",l.fabricante||"",
+      l.fab===""?"":l.fab,
+      l.ultInsp?toDate(l.ultInsp):"",
+      l.m2?toDate(l.m2):"",l.m3?toDate(l.m3):"",l.sit.txt];
+    ws.getCell(r,7).numFmt="dd/mm/yyyy";
+    ws.getCell(r,8).numFmt="mmm-yy";
+    ws.getCell(r,9).numFmt="mmm-yy";
+    row.eachCell({includeEmpty:true},(cell,cn)=>{
+      if(cn>cols.length)return;
+      dataCell(cell,false,false);
+      if(cn===1)cell.alignment={vertical:"middle",horizontal:"left",wrapText:true};
+      if(cn===10&&l.sit.k==="cond")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
+      if(cn===10&&l.sit.k==="manut")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE9D5FF"}};});
+    r++;}
+  ws.autoFilter={from:{row:9,column:1},to:{row:9,column:cols.length}};
+  await baixaXLSX(wb,`Lista_${ext?"Extintores":"Hidrantes"}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast("✅ Planilha gerada!");};
 
 let LIST_N=30;
 window.mudaMesPainel=async()=>{await garanteMes($("pMes").value);render();};
@@ -1422,8 +1645,9 @@ window.render=()=>{
   const inspEq=new Set(mesArr.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
   /* todos os extintores entram na rota do mês, inclusive os do pool de reserva — a norma exige inspeção de todos.
      Vagas de reserva ainda vazias (sem cilindro) não contam, e cilindros condenados também saem
-     da rota — nenhum dos dois tem equipamento apto a ser inspecionado. */
-  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e));
+     da rota — nenhum dos dois tem equipamento apto a ser inspecionado. O mesmo vale para
+     o cilindro que saiu para recarga: enquanto está na Engex, não há o que inspecionar. */
+  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
   const tot=extRota.length+CAD.hid.length;
   $("kInsp").textContent=inspEq.size;
   $("kPend").textContent=Math.max(0,tot-inspEq.size);
@@ -1451,6 +1675,18 @@ window.render=()=>{
       +vagas.map(c=>`<div class="venc"><span>🧯 Ext ${esc(String(c.seqOrigem))} — ${esc(String(c.locOrigem||"").replace(/^Ext \d+ — /,""))}
         <br><small style="color:var(--cinza)">Nº ${esc(String(c.num))} condenado em ${fmtBR(c.data)} · ${esc(c.relatorio||"—")}</small></span>
         <span class="badge b-cond">sem cilindro</span></div>`).join("");}
+  /* cilindros que saíram do local para recarga e ainda não voltaram */
+  const emManut=CAD.ext.filter(e=>emManutencao(e));
+  if($("kManut"))$("kManut").textContent=emManut.length;
+  const mb=$("manutBox");
+  if(mb){
+    mb.classList.toggle("hidden",!emManut.length);
+    if(emManut.length)mb.innerHTML=`<b>🔧 Em manutenção / recarga (${emManut.length})</b>
+      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 4px">Saíram do local para recarga e ainda não retornaram.
+      Ficam fora da rota do mês e não podem ser escolhidos como reserva. Some daqui ao registrar o retorno.</p>`
+      +emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
+        <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · desde ${fmtBR(e.manutDesde)}</small></span>
+        <span class="badge b-manut">manutenção</span></div>`).join("");}
   /* pontos que hoje estão com um cilindro emprestado da Engex, no lugar do original em manutenção */
   const eb=$("engexBox");
   if(eb){
@@ -1469,6 +1705,8 @@ window.render=()=>{
     ${blocoRota(pendExt,"extintores")}
     <b style="font-size:13.5px;color:#1d4ed8;display:block;margin-top:16px">🚒 Hidrantes — ${pendHid.length} pendentes</b>
     ${blocoRota(pendHid,"hidrantes")}`;
+  /* mantém a lista de equipamentos em sincronia quando o cadastro muda em segundo plano */
+  if($("pEquip")&&!$("pEquip").classList.contains("hidden")){try{renderEquip();}catch(e){}}
   desenhaGraficos();};
 
 window.irPara=(t,id)=>{
@@ -1539,7 +1777,9 @@ window.renderVenc=()=>{
     if(fA&&rotuloAg(e)!==fA)return;
     [["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([rot,dt])=>{
       const dd=diasAte(dt);if(!passa(dd,dt))return;
-      linhas.push({d:dd,r:res,h:`<div class="venc"><span>${rotuloExt(e)} · <b>${rotuloAg(e)}</b> · Man. ${rot} ${fmtBR(dt)}<br><small style="color:var(--cinza)">${subExt(e)}</small></span>${badgeVenc(dd)}</div>`});});});
+      /* o que está na Engex continua na lista de propósito — se a recarga demorar,
+         ninguém pode perder o vencimento de vista — mas vai marcado para não soar como esquecido */
+      linhas.push({d:dd,r:res,h:`<div class="venc"><span>${rotuloExt(e)} · <b>${rotuloAg(e)}</b> · Man. ${rot} ${fmtBR(dt)}${emManutencao(e)?` <span class="badge b-manut">🔧 na Engex desde ${fmtBR(e.manutDesde)}</span>`:""}<br><small style="color:var(--cinza)">${subExt(e)}</small></span>${badgeVenc(dd)}</div>`});});});
   linhas.sort((a,b)=>a.d-b.d);
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
@@ -2115,7 +2355,7 @@ window.laudoPDF=async()=>{
   if(!pm)return toast("Escolha o mês no Painel.");
   const mes=ITENS.filter(i=>i.mes===pm);
   const ext=mes.filter(i=>i.tipo==="ext"),hid=mes.filter(i=>i.tipo==="hid");
-  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e));
+  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
   const totPontos=extRota.length+CAD.hid.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
   const nc=mes.filter(i=>i.conformidade==="NC");
@@ -2403,7 +2643,6 @@ function achaQR(code){
 
 /* ---------- QR: etiquetas ---------- */
 window.etiquetasQR=()=>{
-  if(!ISADMIN)return;
   const areas=[...new Set([...CAD.ext,...CAD.hid].map(e=>normRota(e.loc)))].sort();
   $("dlgBody").innerHTML=`<h3>🏷️ Etiquetas QR</h3>
     <label>O que gerar</label>
@@ -2634,7 +2873,6 @@ const idsLivresExt=()=>{
   for(let n=1;n<=teto;n++)if(!usados.has(n))livres.push(n);
   return livres;};
 window.novoLocal=()=>{
-  if(!ISADMIN)return toast("Apenas o administrador pode criar locais.");
   const livres=idsLivresExt();
   const sugerido=livres.length?livres[0]:proxSeqExt();
   $("dlgBody").innerHTML=`<h3>📍 Novo local (posição vazia)</h3>
@@ -2657,7 +2895,6 @@ window.novoLocal=()=>{
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
 window.salvaNovoLocal=async()=>{
-  if(!ISADMIN)return;
   if(!podeGravar())return;
   const seq=parseInt($("nlSeq").value,10);
   const loc=$("nlLoc").value.trim();
@@ -2682,7 +2919,6 @@ window.salvaNovoLocal=async()=>{
     toast("Erro ao criar o local: "+e.message);}};
 
 window.novoEquip=t=>{
-  if(!ISADMIN)return;
   $("dlgBody").innerHTML= t==="ext" ? `<h3>➕ Novo extintor</h3>
     <label>ID do local (em branco = próximo número)</label><input id="cSeq" type="number" min="1" placeholder="ex.: 50 — se já existir, os locais 50 em diante viram 51, 52…">
     <div class="row"><div><label>Nº</label><input id="cNum"></div><div><label>Patrimônio</label><input id="cPat"></div></div>
@@ -2736,7 +2972,9 @@ window.salvaNovoExt=async()=>{
     novo.seq=want||(isReserva(novo)?proxSeqReserva():proxSeqExt());if(!novo.pat)novo.pat=novo.seq;
     CADX.extAdd.push(novo);
     return salvaCADX("novo_extintor",{seq:novo.seq,num:novo.num});}
-  /* ID já existe: insere neste ponto e renumera os locais seguintes (+1) */
+  /* ID já existe: insere neste ponto e renumera os locais seguintes (+1).
+     Renumerar mexe nas etiquetas físicas de vários locais — fica só com o administrador. */
+  if(!ISADMIN)return toast(`O ID ${want} já existe. Deixe o campo do ID em branco para usar o próximo livre — renumerar locais é função do administrador.`);
   if(!confirm(`Já existe o local ${want}. Inserir o novo equipamento aqui e renumerar os locais ${want} em diante (+1)?\n\n⚠️ As etiquetas de LOCAL a partir do nº ${want} precisarão ser reimpressas.`))return;
   novo.seq=want;if(!novo.pat)novo.pat=want;
   const lista=CAD.ext.map(e=>({...e}));
@@ -2821,7 +3059,7 @@ window.revisarReservas=()=>{
   if(!lista.length)return toast("Não há nenhum cilindro no pool de reserva.");
   const linha=e=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--borda);font-size:13px">
       <input type="checkbox" class="rvChk" value="${esc(String(e.seq))}" style="width:auto">
-      <span>Nº ${esc(String(e.num??"—"))} — ${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}${e.fab?` · fab. ${esc(String(e.fab))}`:""}${ehCondenado(e)?' <b style="color:var(--cd)">⛔ já condenado</b>':""}</span>
+      <span>Nº ${esc(String(e.num??"—"))} — ${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}${e.fab?` · fab. ${esc(String(e.fab))}`:""}${ehCondenado(e)?' <b style="color:var(--cd)">⛔ já condenado</b>':""}${emManutencao(e)?' <b style="color:#7c3aed">🔧 na Engex para recarga — some daqui quando voltar</b>':""}</span>
     </label>`;
   $("dlgBody").innerHTML=`<h3>🧹 Revisar pool de reserva (${lista.length})</h3>
     <p style="font-size:12.5px;color:var(--cinza);margin-bottom:6px">Marque os cilindros que <b>não existem mais fisicamente</b> e toque em "Remover selecionados". As inspeções antigas deles continuam no histórico — isto só tira o item das listas e contagens atuais.</p>
