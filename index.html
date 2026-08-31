@@ -496,8 +496,36 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
+
+/* ==================== MODO TESTE — NAO GRAVA NADA ====================
+   Este arquivo roda no canal de teste. Le os dados reais, mas toda gravacao
+   e interceptada aqui, num ponto unico, em vez de alterar os 38 lugares que
+   salvam dados. Para virar producao, basta MODO_TESTE = false. */
+const MODO_TESTE = true;
+const _bloqueia = nome => async (...args) => {
+  const alvo = (args[0] && (args[0].path || args[0].id)) || "";
+  console.warn("[modo teste] gravacao bloqueada:", nome, alvo);
+  try { toast("\uD83E\uDDEA Modo teste \u2014 nada foi gravado"); } catch (e) {}
+  return false;
+};
+const setDoc    = MODO_TESTE ? _bloqueia("setDoc")    : _setDoc;
+const addDoc    = MODO_TESTE ? _bloqueia("addDoc")    : _addDoc;
+const updateDoc = MODO_TESTE ? _bloqueia("updateDoc") : _updateDoc;
+const deleteDoc = MODO_TESTE ? _bloqueia("deleteDoc") : _deleteDoc;
+if (MODO_TESTE) {
+  addEventListener("DOMContentLoaded", () => {
+    const f = document.createElement("div");
+    f.textContent = "AMBIENTE DE TESTE \u2014 le dados reais, nao grava nada";
+    f.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#7A1F1F;"
+      + "color:#fff;font:600 12.5px/1.5 system-ui,sans-serif;text-align:center;"
+      + "padding:8px 12px;letter-spacing:.03em;box-shadow:0 -2px 10px rgba(0,0,0,.25)";
+    document.body.appendChild(f);
+    document.body.style.paddingBottom = "38px";
+  });
+}
+/* ================== FIM DO BLOCO DE MODO TESTE ================== */
 
 /* ================= CONFIGURAÇÃO FIREBASE (PROJETO NOVO) =================
    Crie um projeto em console.firebase.google.com e cole o config aqui */
