@@ -588,7 +588,7 @@ if (MODO_TESTE) {
     const t = document.createElement("span");
     t.textContent = "AMBIENTE DE TESTE \u2014 n\u00e3o grava nada";
     barra.appendChild(t);
-    [["Auditar fotos", "auditarFotos"], ["Cilindros repetidos", "relatorioDuplicados"], ["Vagas de reserva", "relatorioReserva"]]
+    [["Auditar fotos", "auditarFotos"], ["Cilindros repetidos", "relatorioDuplicados"], ["Vagas de reserva", "relatorioReserva"], ["Rastrear cilindro", "rastrearCilindro"], ["Hist. da reserva", "historicoReserva"]]
       .forEach(([rot, fn]) => {
         const b = document.createElement("button");
         b.textContent = rot;
@@ -600,6 +600,51 @@ if (MODO_TESTE) {
     document.body.style.paddingBottom = "42px";
   });
 }
+
+/* --- Diagnostico 4: rastrear um cilindro em todas as camadas de dados --- */
+window.rastrearCilindro = () => {
+  _dlgAbre('<h3>Rastrear cilindro</h3><p style="font-size:13px;color:var(--cinza)">Mostra em que camada do cadastro o n\u00famero aparece.</p>'
+    + '<input id="rcNum" placeholder="N\u00famero do cilindro" style="width:100%;padding:10px;margin:8px 0">'
+    + '<button class="btn" onclick="window.rastrearAgora()">Rastrear</button><div id="rcOut"></div>');
+};
+window.rastrearAgora = () => {
+  const alvo = String(($("rcNum") && $("rcNum").value) || "").trim();
+  if (!alvo) return;
+  const igual = v => String(v == null ? "" : v).trim() === alvo;
+  const camadas = [];
+  ((typeof CAD0 !== "undefined" && CAD0.ext) || []).forEach(e => { if (igual(e.num)) camadas.push(["cadastro base", e.seq]); });
+  ((typeof CADX !== "undefined" && CADX.extAdd) || []).forEach(e => { if (igual(e.num)) camadas.push(["vaga criada (extAdd)", e.seq]); });
+  Object.entries((typeof CADX !== "undefined" && CADX.extEdit) || {}).forEach(([sq, v]) => { if (igual(v.num)) camadas.push(["edicao (extEdit)", sq]); });
+  Object.entries((typeof OVR !== "undefined" && OVR) || {}).forEach(([sq, v]) => { if (igual(v.num)) camadas.push(["override (OVR)", sq]); });
+  const efetivo = (CAD.ext || []).filter(e => igual(e.num))
+    .map(e => (isReserva(e) ? "Reserva " : "Ext ") + e.seq + (e.loc ? " \u2014 " + e.loc : ""));
+  const movs = ((typeof MOVS !== "undefined" && MOVS) || []).filter(m => igual(m.saiu) || igual(m.entrou))
+    .map(m => (m.data || "") + " \u00b7 posi\u00e7\u00e3o " + (m.posicao ?? "?") + " \u00b7 saiu " + (m.saiu ?? "\u2014") + " \u2192 entrou " + (m.entrou ?? "\u2014") + (m.verificacao ? " [verifica\u00e7\u00e3o]" : " [troca]"));
+  $("rcOut").innerHTML = "<h4 style=\"margin:14px 0 4px\">Onde aparece hoje</h4>"
+    + (efetivo.length ? efetivo.map(t => '<div class="venc"><span>' + esc(t) + "</span></div>").join("") : "<p>Em nenhuma posi\u00e7\u00e3o.</p>")
+    + "<h4 style=\"margin:14px 0 4px\">Camadas que declaram esse n\u00famero</h4>"
+    + (camadas.length ? camadas.map(([c, sq]) => '<div class="venc"><span>' + esc(c) + '</span><span>seq ' + esc(String(sq)) + "</span></div>").join("") : "<p>Nenhuma.</p>")
+    + "<h4 style=\"margin:14px 0 4px\">Movimenta\u00e7\u00f5es</h4>"
+    + (movs.length ? movs.map(t => '<div class="venc"><span style="font-size:12.5px">' + esc(t) + "</span></div>").join("") : "<p>Nenhuma.</p>");
+};
+
+/* --- Diagnostico 5: quanto historico esta preso a vagas de reserva (seq > 220) --- */
+window.historicoReserva = () => {
+  const LIMITE_FIXO = 220;
+  const daReserva = n => { const v = +n; return !isNaN(v) && v > LIMITE_FIXO; };
+  const insp = ((typeof ITENS !== "undefined" && ITENS) || []).filter(i => daReserva(i.eqSeq));
+  const movs = ((typeof MOVS !== "undefined" && MOVS) || []).filter(m => daReserva(m.posicao));
+  const cond = ((typeof CONDS !== "undefined" && CONDS) || []).filter(c => daReserva(c.seqOrigem));
+  const seqs = [...new Set([...insp.map(i => +i.eqSeq), ...movs.map(m => +m.posicao), ...cond.map(c => +c.seqOrigem)])].sort((a, b) => a - b);
+  _dlgAbre("<h3>Hist\u00f3rico preso \u00e0s vagas de reserva</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Registros que apontam para posi\u00e7\u00f5es acima de ' + LIMITE_FIXO
+    + '. Se uma vaga com hist\u00f3rico for renumerada, esses registros passam a apontar para o cilindro errado.</p>'
+    + '<div class="venc"><span>Inspe\u00e7\u00f5es (das ' + ((typeof ITENS !== "undefined" && ITENS) || []).length + " carregadas)</span><span><b>" + insp.length + "</b></span></div>"
+    + '<div class="venc"><span>Movimenta\u00e7\u00f5es</span><span><b>' + movs.length + "</b></span></div>"
+    + '<div class="venc"><span>Condena\u00e7\u00f5es</span><span><b>' + cond.length + "</b></span></div>"
+    + '<div class="venc"><span><b>Vagas com hist\u00f3rico</b></span><span><b>' + seqs.length + "</b></span></div>"
+    + (seqs.length ? '<p style="margin-top:10px;font-size:13px"><b>Vagas:</b> ' + seqs.join(", ") + "</p>" : ""));
+};
 /* ==================== FIM DO BLOCO DE TESTE ==================== */
 
 /* ================= CONFIGURAÇÃO FIREBASE (PROJETO NOVO) =================
@@ -889,7 +934,9 @@ window.toggleEngex=async()=>{
   const seq=String(EQ.seq);
   OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?new Date().toISOString().slice(0,10):""};
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
+    /* grava SO esta posicao. Antes regravava o mapa inteiro a partir da memoria:
+       um aparelho com estado antigo (offline, por exemplo) apagava o trabalho dos outros. */
+    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
     audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num});
     toast(ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
   }catch(e){toast("Erro ao salvar: "+e.message);}
@@ -1462,8 +1509,14 @@ window.clEscolhe=seq=>{
     <select id="clOk"><option>Não</option><option>Sim</option></select></div>`:"";};
 window.confirmaCorrecaoLocal=async()=>{
   if(!podeGravar())return;
-  const Y=window._clSel;
-  if(!Y)return toast("Digite o nº e escolha o cilindro na lista.");
+  const _sel=window._clSel;
+  if(!_sel)return toast("Digite o nº e escolha o cilindro na lista.");
+  /* cada atualizacao em segundo plano reconstroi CAD.ext, entao a referencia guardada
+     ao escolher o cilindro pode ter envelhecido. Sem revalidar, o mesmo numero acaba
+     gravado em duas posicoes. A confirmaTroca ja fazia isso; esta nao fazia. */
+  const Y=CAD.ext.find(e=>String(e.seq)===String(_sel.seq));
+  if(!Y||String(Y.num??"")!==String(_sel.num??""))
+    return toast("A tela foi atualizada em segundo plano. Escolha o cilindro de novo.");
   if(!EQ){$("dlg").close();return;}
   if(String(Y.seq)===String(EQ.seq))return toast("Este já é o equipamento cadastrado neste local.");
   const ok=$("clOk");
@@ -1471,12 +1524,15 @@ window.confirmaCorrecaoLocal=async()=>{
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const dY={},vazio={},dX={};
   CAMPOS.forEach(c=>{dY[c]=Y[c]??null;vazio[c]=null;dX[c]=EQ[c]??null;});
+  /* a gravacao usa merge, que nao remove chave ausente: sem estes nulos a vaga
+     esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
+  ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
   {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false;
   if(dX.num){                /* o que constava aqui vira reserva */
-    const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
+    const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
     if(slot)OVR[String(slot.seq)]=dX;
     else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
   }
@@ -1596,11 +1652,13 @@ window.confirmaRetornoRecarga=async()=>{
   const m2=$("rcM2").value||null,m3=$("rcM3").value||null;
   const anterior={...(OVR[seq]||{})};
   const novo={...anterior};
-  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{delete novo[k];});
+  /* nulos em vez de delete: assim a limpeza funciona tambem numa gravacao com merge,
+     que e o que permite gravar so esta posicao em vez do mapa inteiro */
+  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{novo[k]=null;});
   novo.man2=m2;novo.man3=m3;
   OVR[seq]=novo;
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
+    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:novo}},{merge:true}));
     audit("retorno_recarga",{seq,num,retorno:dt,man2:m2,man3:m3});
     aplicaOvr();
     $("dlg").close();
@@ -2230,7 +2288,10 @@ window.salvaEdicaoInspecao=async id=>{
     if((mexeuFoto||i.foto1||i.foto2)&&fAtu.erro){
       return toast("\u26a0\uFE0F N\u00e3o consegui carregar as fotos atuais. Salvar agora apagaria as que est\u00e3o no sistema. Tente de novo com sinal melhor.");}
     if(mexeuFoto||i.foto1||i.foto2){
-      await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
+      const gravouFoto=await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
+      /* so limpa a foto do documento depois de confirmar que a copia foi gravada.
+         Antes limpava sempre: se a copia falhasse, a foto sumia dos dois lugares. */
+      if(!gravouFoto)return toast("\u26a0\uFE0F A foto n\u00e3o p\u00f4de ser gravada agora. Nada foi alterado \u2014 tente com sinal melhor.");
       patch.foto1="";patch.foto2="";patch.temFoto=!!(fAtu.foto1||fAtu.foto2);
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
@@ -2818,9 +2879,18 @@ window.etiquetasQR=()=>{
     <select id="qtArea"><option value="">Todas as áreas</option>${areas.map(a=>`<option>${esc(a)}</option>`).join("")}</select>
     <label>Individual: digite o nº, ID ou descrição (em branco = todos do filtro)</label>
     <input id="qtBusca" placeholder="ex.: 1234">
-    <p style="font-size:11.5px;color:var(--cinza);margin-top:6px">📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).</p>
+    <label>Formato de impressão</label>
+    <select id="qtFormato">
+      <option value="a4">📄 Folha A4 — Pimaco A4360 (21 etiquetas por folha)</option>
+      <option value="zebra">🖨️ Zebra ZD220 — etiqueta 80×30mm (uma por etiqueta)</option>
+    </select>
+    <p style="font-size:11.5px;color:var(--cinza);margin-top:6px" id="qtDica">📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).</p>
     <button class="btn" onclick="geraEtiquetas()">🖨️ Gerar e imprimir</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  const dica=$("qtFormato");
+  if(dica)dica.onchange=()=>{$("qtDica").innerHTML=dica.value==="zebra"
+    ?'🖨️ Uma etiqueta por QR, <b>80mm de largura × 30mm de altura</b>. Na janela de impressão escolha a <b>Zebra ZD220</b>, margens <b>Nenhuma</b> e escala <b>100%</b> (não use "Ajustar à página").'
+    :'📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).';};
   $("dlg").showModal();};
 window.geraEtiquetas=async()=>{
   const t=$("qtTipo").value,area=$("qtArea").value,busca=$("qtBusca").value.trim().toLowerCase();
@@ -2832,34 +2902,59 @@ window.geraEtiquetas=async()=>{
   if(!areas.length&&!extns.length&&!hids.length)return toast("Nenhum equipamento com esse filtro.");
   $("dlg").close();
   toast(`Gerando ${areas.length+extns.length+hids.length} etiquetas… aguarde`);
+  const fmt=($("qtFormato")&&$("qtFormato").value)||"a4";
+  /* na termica o QR e gerado maior: a ZD220 imprime a 203 dpi e um QR de 110px
+     ficaria borrado ao ser esticado para 25mm */
+  const qrPx=fmt==="zebra"?256:110;
   const off=document.createElement("div");off.style.display="none";document.body.appendChild(off);
   const mk=txt=>new Promise(res=>{const d=document.createElement("div");off.appendChild(d);
-    new QRCode(d,{text:txt,width:110,height:110,correctLevel:QRCode.CorrectLevel.M});
+    new QRCode(d,{text:txt,width:qrPx,height:qrPx,correctLevel:QRCode.CorrectLevel.M});
     setTimeout(()=>{const el=d.querySelector("img,canvas");res(el.tagName==="IMG"?el.src:el.toDataURL());},15);});
   let cards="";
-  /* 📍 Etiqueta do LOCAL (posição fixa): ID do local, descrição e padrão de agente/carga */
+  const zebra=fmt==="zebra";
+  /* na termica: sem emoji (o driver pode trocar por caixa) e texto em preto puro */
+  const cartao=(src,titulo,sub,extra)=>zebra
+    ?`<div class="et"><img src="${src}"><div class="tx"><b>${titulo}</b>${sub?`<span>${sub}</span>`:""}${extra?`<span>${extra}</span>`:""}</div></div>`
+    :`<div class="et"><img src="${src}"><div><b>${titulo}</b>${sub?`<br><small>${sub}</small>`:""}${extra?`<br>${extra}`:""}</div></div>`;
+  /* Etiqueta do LOCAL (posição fixa): ID do local, descrição e padrão de agente/carga */
   for(const e of areas){const src=await mk("PAPIRUS-EXT:"+e.seq);
-    cards+=`<div class="et"><img src="${src}"><div><b>📍 LOCAL ${e.seq}</b><br><small>${esc(String(e.loc||"").slice(0,48))}</small><br>Padrão: <b>${esc(e.agp||"—")} ${esc(e.cgp||"")}</b></div></div>`;}
-  /* 🧯 Etiqueta do EXTINTOR (acompanha o equipamento): agente, carga e Nº do chassi */
+    cards+=cartao(src,`${zebra?"":"📍 "}LOCAL ${e.seq}`,esc(String(e.loc||"").slice(0,zebra?38:48)),
+      `Padrão: <b>${esc(e.agp||"—")} ${esc(e.cgp||"")}</b>`);}
+  /* Etiqueta do EXTINTOR (acompanha o equipamento) */
   for(const e of extns){const src=await mk("PAPIRUS-EXTN:"+e.num);
-    cards+=`<div class="et"><img src="${src}"><div><b>🧯 Nº ${esc(String(e.num))}</b><br>${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}</div></div>`;}
-  /* 🚒 Etiqueta do HIDRANTE: ID e nome da área */
+    cards+=cartao(src,`${zebra?"":"🧯 "}Nº ${esc(String(e.num))}`,
+      `${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}`,"");}
+  /* Etiqueta do HIDRANTE */
   for(const h of hids){const src=await mk("PAPIRUS-HID:"+h.pat);
-    cards+=`<div class="et"><img src="${src}"><div><b>🚒 ${esc(String(h.pat))}</b><br><small>${esc(String(h.loc||"").slice(0,48))}</small></div></div>`;}
+    cards+=cartao(src,`${zebra?"HIDRANTE ":"🚒 "}${esc(String(h.pat))}`,
+      esc(String(h.loc||"").slice(0,zebra?38:48)),"");}
   off.remove();
   const fr=document.createElement("iframe");fr.style.display="none";document.body.appendChild(fr);
-  fr.contentDocument.write(`<html><head><title>Etiquetas QR — Papirus — Pimaco A4360</title><style>
-    @page{size:A4;margin:15.15mm 7.2mm}
-    *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;margin:0}
+  /* Molde Pimaco A4360: 63,5x38,1mm, 3 colunas x 7 linhas, 2,5mm entre colunas */
+  const cssA4=`@page{size:A4;margin:15.15mm 7.2mm}
     .grid{display:flex;flex-wrap:wrap}
-    /* Molde Pimaco A4360: 63,5mm x 38,1mm · 3 colunas x 7 linhas · sem espaço vertical · 2,5mm entre colunas */
     .et{width:63.5mm;height:38.1mm;margin-right:2.5mm;padding:1.5mm 2mm;border:1px dotted #bbb;
       display:flex;gap:2mm;align-items:center;overflow:hidden;page-break-inside:avoid;font-size:9px;line-height:1.3}
     .et:nth-child(3n){margin-right:0}
     .et img{width:26mm;height:26mm;flex-shrink:0}
     .et b{font-size:10.5px}
-    .et small{font-size:8px;color:#555}</style></head><body><div class="grid">${cards}</div></body></html>`);
+    .et small{font-size:8px;color:#555}`;
+  /* Zebra ZD220 (203 dpi): uma etiqueta de 80x30mm por QR, sem margem e sem borda.
+     page-break-after joga cada etiqueta para a proxima; o ultimo nao quebra, senao
+     a impressora avanca uma etiqueta em branco no fim do lote. */
+  const cssZebra=`@page{size:80mm 30mm;margin:0}
+    .grid{display:block}
+    .et{width:80mm;height:30mm;padding:1.5mm 2mm;display:flex;gap:2mm;align-items:center;
+      overflow:hidden;color:#000;page-break-after:always;break-after:page;page-break-inside:avoid}
+    .et:last-child{page-break-after:auto;break-after:auto}
+    .et img{width:25mm;height:25mm;flex-shrink:0;image-rendering:pixelated}
+    .tx{display:flex;flex-direction:column;justify-content:center;overflow:hidden;line-height:1.25}
+    .tx b{font-size:13px;font-weight:700}
+    .tx span{font-size:9.5px}`;
+  fr.contentDocument.write(`<html><head><title>Etiquetas QR — Papirus — ${zebra?"Zebra ZD220 80x30mm":"Pimaco A4360"}</title><style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;margin:0}
+    ${zebra?cssZebra:cssA4}</style></head><body><div class="grid">${cards}</div></body></html>`);
   fr.contentDocument.close();
   setTimeout(()=>{fr.contentWindow.print();setTimeout(()=>fr.remove(),3000);},500);};
 
