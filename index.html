@@ -522,16 +522,21 @@ const _pfx = ref => {
   return (p.length % 2) ? collection(ref.firestore, cam) : doc(ref.firestore, cam);
 };
 window._TESTE_ESCRITAS = [];
-const _reg = (op, ref) => { try { window._TESTE_ESCRITAS.push(
-  { op, path: String((ref && ref.path) || "?"), quando: Date.now() }); } catch (e) {} };
-const setDoc    = MODO_TESTE ? (r, ...a) => { _reg("setDoc", r);    return _setDoc(_pfx(r), ...a); }    : _setDoc;
-const addDoc    = MODO_TESTE ? (r, ...a) => { _reg("addDoc", r);    return _addDoc(_pfx(r), ...a); }    : _addDoc;
-const updateDoc = MODO_TESTE ? (r, ...a) => { _reg("updateDoc", r); return _updateDoc(_pfx(r), ...a); } : _updateDoc;
+/* o documento de teste ACUMULA (cada fluxo soma posicoes), entao contar as posicoes
+   nele nao prova nada. O que prova e quantas posicoes CADA gravacao mandou no corpo. */
+const _reg = (op, ref, dados) => { try {
+  const ov = dados && dados.overrides;
+  const n = (ov && typeof ov === "object") ? Object.keys(ov).length : null;
+  window._TESTE_ESCRITAS.push({ op, path: String((ref && ref.path) || "?"), posicoes: n, quando: Date.now() });
+} catch (e) {} };
+const setDoc    = MODO_TESTE ? (r, ...a) => { _reg("setDoc", r, a[0]);    return _setDoc(_pfx(r), ...a); }    : _setDoc;
+const addDoc    = MODO_TESTE ? (r, ...a) => { _reg("addDoc", r, a[0]);    return _addDoc(_pfx(r), ...a); }    : _addDoc;
+const updateDoc = MODO_TESTE ? (r, ...a) => { _reg("updateDoc", r, a[0]); return _updateDoc(_pfx(r), ...a); } : _updateDoc;
 const deleteDoc = MODO_TESTE ? (r, ...a) => { _reg("deleteDoc", r); return _deleteDoc(_pfx(r), ...a); } : _deleteDoc;
 /* o lote grava por fora das 4 funcoes acima: sem esta trava ele escaparia do modo teste */
 const writeBatch = MODO_TESTE
   ? d => { const b = _writeBatch(d);
-           const w = { set:    (r, ...a) => { _reg("lote.set", r);    b.set(_pfx(r), ...a);    return w; },
+           const w = { set:    (r, ...a) => { _reg("lote.set", r, a[0]);    b.set(_pfx(r), ...a);    return w; },
                        update: (r, ...a) => { _reg("lote.update", r); b.update(_pfx(r), ...a); return w; },
                        delete: (r)       => { _reg("lote.delete", r); b.delete(_pfx(r));       return w; },
                        commit: () => b.commit() };
@@ -629,8 +634,7 @@ window.conferirGravacoes = async () => {
       if (qt !== null) {
         corpo += "<br>posi\u00e7\u00f5es dentro de <code>overrides</code>: <b>" + qt + "</b>"
           + (qr !== null ? ' <small style="color:var(--cinza)">(o documento real tem ' + qr + ")</small>" : "")
-          + (qt === 1 ? ' <b style="color:var(--ok)">\u2713 gravou s\u00f3 a posi\u00e7\u00e3o alterada</b>'
-                      : ' <b style="color:var(--nc)">\u26a0 gravou o mapa inteiro</b>');
+          + ' <small style="color:var(--cinza)">(acumulado dos testes desta sess\u00e3o \u2014 o veredito est\u00e1 na lista acima)</small>';
       }
       corpo += '<br><small style="color:var(--cinza);word-break:break-all">'
         + esc(JSON.stringify(t).slice(0, 700)) + "</small>";
@@ -642,7 +646,15 @@ window.conferirGravacoes = async () => {
     + '<p style="font-size:13px;color:var(--cinza)">O app gravou nas c\u00f3pias <code>teste_*</code>. '
     + "As telas continuam lendo os dados reais, ent\u00e3o elas <b>n\u00e3o</b> mudam \u2014 a prova do que subiu est\u00e1 aqui.</p>"
     + '<div class="venc"><span><b>Grava\u00e7\u00f5es tentadas</b></span><span><b>' + feitas.length + "</b></span></div>"
-    + feitas.map(e => '<div class="venc"><span>' + esc(e.op) + " \u2192 " + esc(e.path) + "</span></div>").join("")
+    + feitas.map(e => {
+        let extra = "";
+        if (e.posicoes !== null && e.posicoes !== undefined) {
+          const grande = e.posicoes > 5;
+          extra = '<br><small>mandou <b>' + e.posicoes + '</b> posi\u00e7\u00e3o(\u00f5es) nesta grava\u00e7\u00e3o '
+            + (grande ? '<b style="color:var(--nc)">\u26a0 mapa inteiro</b>' : '<b style="color:var(--ok)">\u2713</b>') + "</small>";
+        }
+        return '<div class="venc"><span>' + esc(e.op) + " \u2192 " + esc(e.path) + extra + "</span></div>";
+      }).join("")
     + '<h3 style="margin-top:14px">Conte\u00fado gravado</h3>' + blocos.join(""));
 };
 
@@ -1597,14 +1609,19 @@ window.confirmaCorrecaoLocal=async()=>{
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
   {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
-  let novaReserva=false;
+  let novaReserva=false,seqSlot=null;
   if(dX.num){                /* o que constava aqui vira reserva */
     const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
-    if(slot)OVR[String(slot.seq)]=dX;
+    if(slot){OVR[String(slot.seq)]=dX;seqSlot=slot.seq;}
     else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
   }
+  /* {merge:true} NAO basta: com o mapa OVR inteiro no corpo, as 357 posicoes sao
+     reescritas com o estado deste aparelho e o trabalho de quem mexeu no cadastro
+     enquanto ele estava sem sinal e' desfeito. So sobem as posicoes realmente tocadas. */
+  const _patch={};
+  [EQ.seq,ySeq].concat(seqSlot!=null?[seqSlot]:[]).forEach(sq=>{_patch[String(sq)]=OVR[String(sq)];});
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
+    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
     if(novaReserva)await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
       posicao:EQ.seq,loc:EQ.loc||"",saiu:dX.num??"—",entrou:dY.num,verificacao:true,
@@ -1671,9 +1688,14 @@ window.confirmaTroca=async()=>{
      Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
   OVR[String(r.seq)]=eraReserva
     ?{...doEQ,manut:true,manutDesde:new Date().toISOString().slice(0,10),manutDe:EQ.seq,manutLoc:EQ.loc||""}
-    :doEQ;
+    /* troca entre dois pontos fixos: ninguem foi para recarga. Sem estes nulos o merge
+       manteria uma marcacao de manutencao antiga que ficou no servidor. */
+    :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null};
+  /* mesma armadilha da verificacao de local: o mapa inteiro no corpo desfaz o que
+     outro inspetor gravou. A troca mexe em duas posicoes, entao sobem duas. */
+  const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
+    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
     await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
