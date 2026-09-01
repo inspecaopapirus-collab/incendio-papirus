@@ -438,6 +438,12 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <option value="manut">Em manutenção</option>
  <option value="cond">Condenados</option>
  </select>
+ <select id="eqOrd" onchange="renderEquip()" aria-label="Ordenação">
+ <option value="loc">Local: menor → maior</option>
+ <option value="loc-desc">Local: maior → menor</option>
+ <option value="num">Nº do cilindro</option>
+ <option value="sit">Situação</option>
+ </select>
  <input id="eqBusca" placeholder="Buscar nº, patrimônio ou local…" oninput="renderEquip()">
  </div>
  <button class="btn sec" onclick="exportEquipXLSX()">⬇️ Exportar lista em Excel</button>
@@ -499,14 +505,12 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, on
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
-/* ============ MODO TESTE — LE DADOS REAIS, NAO GRAVA NADA ============
-   Toda gravacao passa por estas 4 funcoes do Firestore. Interceptar aqui
-   cobre os 38 pontos do app sem alterar nenhum deles.
-   Para virar producao: MODO_TESTE = false. */
+/* ======== MODO TESTE — LE DADOS REAIS, NAO GRAVA NADA ========
+   As 4 funcoes de gravacao do Firestore sao interceptadas aqui, num ponto
+   unico, cobrindo os 38 lugares do app. Para producao: MODO_TESTE = false. */
 const MODO_TESTE = true;
 const _bloqueia = nome => async (...args) => {
-  const alvo = (args[0] && (args[0].path || args[0].id)) || "";
-  console.warn("[modo teste] gravacao bloqueada:", nome, alvo);
+  console.warn("[modo teste] gravacao bloqueada:", nome, (args[0] && (args[0].path || args[0].id)) || "");
   try { toast("Modo teste \u2014 nada foi gravado"); } catch (e) {}
   return false;
 };
@@ -515,61 +519,88 @@ const addDoc    = MODO_TESTE ? _bloqueia("addDoc")    : _addDoc;
 const updateDoc = MODO_TESTE ? _bloqueia("updateDoc") : _updateDoc;
 const deleteDoc = MODO_TESTE ? _bloqueia("deleteDoc") : _deleteDoc;
 
-/* Auditoria de fotos: procura inspecoes marcadas com foto cuja foto nao existe.
-   Somente leitura (getDoc). Comeca pelas mais recentes. */
-const AUD_MAX = 60;
+const _dlgAbre = html => { $("dlgBody").innerHTML = html
+  + '<button class="btn sec" style="margin-top:14px" onclick="dlg.close()">Fechar</button>'; $("dlg").showModal(); };
+
+/* --- Diagnostico 1: fotos marcadas que nao existem no banco (so leitura) --- */
 window.auditarFotos = async () => {
-  const todas = (typeof ITENS !== "undefined" && ITENS) ? ITENS : [];
-  const marcadas = todas.filter(i => i.temFoto);
-  const amostra = marcadas.slice(0, AUD_MAX);
-  if (!amostra.length) {
-    $("dlgBody").innerHTML = "<h3>Auditoria de fotos</h3><p>Nenhuma inspecao marcada com foto foi carregada.</p>"
-      + '<button class="btn sec" onclick="dlg.close()">Fechar</button>';
-    $("dlg").showModal(); return;
-  }
+  const marcadas = ((typeof ITENS !== "undefined" && ITENS) ? ITENS : []).filter(i => i.temFoto);
+  const amostra = marcadas.slice(0, 60);
+  if (!amostra.length) return _dlgAbre("<h3>Auditoria de fotos</h3><p>Nenhuma inspecao com foto carregada.</p>");
   $("dlgBody").innerHTML = "<h3>Auditoria de fotos</h3><p>Conferindo " + amostra.length + " registros...</p>";
   $("dlg").showModal();
-  const faltando = []; let comFoto = 0, embutida = 0;
+  const faltando = []; let achou = 0;
   for (const i of amostra) {
-    if (i.foto1 || i.foto2) { embutida++; continue; }
-    try {
-      const d = await getDoc(doc(db, "fotos", i.id));
-      if (d.exists() && (d.data().foto1 || d.data().foto2)) comFoto++;
-      else faltando.push(i);
+    if (i.foto1 || i.foto2) { achou++; continue; }
+    try { const d = await getDoc(doc(db, "fotos", i.id));
+      if (d.exists() && (d.data().foto1 || d.data().foto2)) achou++; else faltando.push(i);
     } catch (e) { faltando.push(i); }
   }
-  const linha = i => '<div class="venc"><span>'
-    + (i.tipo === "ext" ? "Ext " + esc(String(i.eqSeq ?? "?")) + " \u00b7 N\u00ba " + esc(String(i.eqNum ?? "\u2014")) : "Hidrante " + esc(String(i.eqPat ?? "?")))
-    + "<br><small style=\"color:var(--cinza)\">" + esc(String(i.data || "")) + " \u00b7 " + esc(String(i.inspetor || "")) + "</small></span></div>";
-  const pct = Math.round(faltando.length / amostra.length * 100);
-  $("dlgBody").innerHTML = "<h3>Auditoria de fotos</h3>"
-    + "<p style=\"font-size:13px;color:var(--cinza)\">Amostra: os " + amostra.length
-    + " registros mais recentes marcados com foto (de " + marcadas.length + " marcados no total carregado).</p>"
-    + "<div class=\"venc\"><span><b>Foto encontrada</b></span><span>" + (comFoto + embutida) + "</span></div>"
-    + "<div class=\"venc\"><span><b>FOTO PERDIDA</b></span><span style=\"color:var(--perigo,#b00)\"><b>" + faltando.length + " (" + pct + "%)</b></span></div>"
-    + (faltando.length ? "<p style=\"margin-top:12px\"><b>Registros sem a foto:</b></p>" + faltando.map(linha).join("") : "<p style=\"margin-top:12px\">Nenhuma foto perdida nesta amostra.</p>")
-    + '<button class="btn sec" style="margin-top:14px" onclick="dlg.close()">Fechar</button>';
+  _dlgAbre("<h3>Auditoria de fotos</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Amostra: ' + amostra.length + " mais recentes, de " + marcadas.length + " marcados.</p>"
+    + '<div class="venc"><span><b>Foto encontrada</b></span><span>' + achou + "</span></div>"
+    + '<div class="venc"><span><b>Foto ausente</b></span><span><b>' + faltando.length + "</b></span></div>"
+    + (faltando.length ? faltando.map(i => '<div class="venc"><span>Ext ' + esc(String(i.eqSeq ?? "?")) + " N\u00ba " + esc(String(i.eqNum ?? "\u2014"))
+        + '<br><small style="color:var(--cinza)">' + esc(String(i.data || "")) + "</small></span></div>").join("") : ""));
+};
+
+/* --- Diagnostico 2: numeros de cilindro repetidos em duas posicoes --- */
+window.relatorioDuplicados = () => {
+  const porNum = {};
+  (CAD.ext || []).forEach(e => { if (e.num == null || e.num === "") return;
+    const k = String(e.num).trim(); (porNum[k] = porNum[k] || []).push(e); });
+  const dups = Object.entries(porNum).filter(([, v]) => v.length > 1)
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]), "pt", { numeric: true }));
+  const ondeEsta = e => (isReserva(e) ? "Reserva " : "Ext ") + esc(String(e.seq))
+    + (e.loc ? ' <small style="color:var(--cinza)">' + esc(String(e.loc)) + "</small>" : "");
+  _dlgAbre("<h3>Cilindros em mais de uma posi\u00e7\u00e3o</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Cada n\u00famero abaixo aparece em duas ou mais posi\u00e7\u00f5es do cadastro. Decis\u00e3o caso a caso: s\u00f3 quem viu o equipamento sabe onde ele est\u00e1.</p>'
+    + '<div class="venc"><span><b>N\u00fameros repetidos</b></span><span><b>' + dups.length + "</b></span></div>"
+    + dups.map(([num, lista]) => '<div class="venc"><span><b>N\u00ba ' + esc(num) + "</b><br>"
+        + lista.map(ondeEsta).join("<br>") + "</span></div>").join(""));
+};
+
+/* --- Diagnostico 3: buracos na numeracao das vagas de reserva --- */
+window.relatorioReserva = () => {
+  const res = (CAD.ext || []).filter(e => isReserva(e));
+  const seqs = res.map(e => +e.seq).filter(n => !isNaN(n)).sort((a, b) => a - b);
+  if (!seqs.length) return _dlgAbre("<h3>Vagas de reserva</h3><p>Nenhuma vaga de reserva encontrada.</p>");
+  const min = seqs[0], max = seqs[seqs.length - 1], set = new Set(seqs);
+  const buracos = []; for (let n = min; n <= max; n++) if (!set.has(n)) buracos.push(n);
+  const cond = res.filter(e => ehCondenado(e)).length;
+  const vazias = res.filter(e => !e.num).length;
+  _dlgAbre("<h3>Vagas de reserva</h3>"
+    + '<div class="venc"><span>Faixa usada</span><span>' + min + " a " + max + "</span></div>"
+    + '<div class="venc"><span>Vagas existentes</span><span>' + seqs.length + "</span></div>"
+    + '<div class="venc"><span><b>Buracos reais na numera\u00e7\u00e3o</b></span><span><b>' + buracos.length + "</b></span></div>"
+    + '<div class="venc"><span>Com cilindro condenado</span><span>' + cond + "</span></div>"
+    + '<div class="venc"><span>Vagas vazias (sem cilindro)</span><span>' + vazias + "</span></div>"
+    + (buracos.length ? '<p style="margin-top:10px"><b>Faltando:</b> ' + buracos.join(", ") + "</p>"
+        : '<p style="margin-top:10px">A numera\u00e7\u00e3o est\u00e1 cont\u00ednua \u2014 os saltos vistos na tela s\u00e3o de filtro, n\u00e3o do cadastro.</p>'));
 };
 
 if (MODO_TESTE) {
   addEventListener("DOMContentLoaded", () => {
-    const f = document.createElement("div");
-    f.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#7A1F1F;"
-      + "color:#fff;font:600 12.5px/1.5 system-ui,sans-serif;text-align:center;"
-      + "padding:7px 12px;letter-spacing:.03em;display:flex;gap:12px;justify-content:center;align-items:center";
+    const barra = document.createElement("div");
+    barra.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#7A1F1F;color:#fff;"
+      + "font:600 12px/1.5 system-ui,sans-serif;padding:7px 10px;display:flex;gap:8px;justify-content:center;"
+      + "align-items:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.25)";
     const t = document.createElement("span");
-    t.textContent = "AMBIENTE DE TESTE \u2014 l\u00ea dados reais, n\u00e3o grava nada";
-    const b = document.createElement("button");
-    b.textContent = "Auditar fotos";
-    b.style.cssText = "background:#fff;color:#7A1F1F;border:0;border-radius:5px;padding:4px 12px;"
-      + "font:600 12px system-ui,sans-serif;cursor:pointer";
-    b.onclick = () => window.auditarFotos();
-    f.appendChild(t); f.appendChild(b);
-    document.body.appendChild(f);
-    document.body.style.paddingBottom = "40px";
+    t.textContent = "AMBIENTE DE TESTE \u2014 n\u00e3o grava nada";
+    barra.appendChild(t);
+    [["Auditar fotos", "auditarFotos"], ["Cilindros repetidos", "relatorioDuplicados"], ["Vagas de reserva", "relatorioReserva"]]
+      .forEach(([rot, fn]) => {
+        const b = document.createElement("button");
+        b.textContent = rot;
+        b.style.cssText = "background:#fff;color:#7A1F1F;border:0;border-radius:5px;padding:4px 10px;font:600 11.5px system-ui,sans-serif;cursor:pointer";
+        b.onclick = () => window[fn]();
+        barra.appendChild(b);
+      });
+    document.body.appendChild(barra);
+    document.body.style.paddingBottom = "42px";
   });
 }
-/* ==================== FIM DO BLOCO DE MODO TESTE ==================== */
+/* ==================== FIM DO BLOCO DE TESTE ==================== */
 
 /* ================= CONFIGURAÇÃO FIREBASE (PROJETO NOVO) =================
    Crie um projeto em console.firebase.google.com e cole o config aqui */
@@ -1104,7 +1135,7 @@ async function fotosDe(i){
     const d=await getDoc(doc(db,"fotos",i.id));
     const f=d.exists()?{foto1:d.data().foto1||"",foto2:d.data().foto2||""}:vazio;
     CACHE_FOTOS.set(i.id,f);return f;
-  }catch(e){console.error("[fotos "+i.id+"]",e);return vazio;}}
+  }catch(e){console.error("[fotos "+i.id+"]",e);return {foto1:"",foto2:"",erro:true};}}
 /* ---------- Visualizador de foto (tela cheia + download) ---------- */
 const FOTOS_ABERTAS={};
 window.verFoto=(chave,titulo,arquivo)=>{
@@ -1628,11 +1659,20 @@ function linhasEquip(){
       m2:tipo==="ext"?(e.man2||""):(e.man||""),
       m3:tipo==="ext"?(e.man3||""):(e.th||""),
     };});
-  return linhas.filter(l=>{
+  const filtradas=linhas.filter(l=>{
     if(sit&&l.sit.k!==sit)return false;
     if(!q)return true;
     return `${l.num} ${l.id} ${l.agente} ${l.carga} ${l.fabricante} ${l.loc}`.toLowerCase().includes(q);
-  }).sort((a,b)=>(+a.id||0)-(+b.id||0)||String(a.id).localeCompare(String(b.id)));}
+  });
+  const ord=($("eqOrd")&&$("eqOrd").value)||"loc";
+  const porId=(a,b)=>(+a.id||0)-(+b.id||0)||String(a.id).localeCompare(String(b.id));
+  const cmp={
+    "loc":porId,
+    "loc-desc":(a,b)=>porId(b,a),
+    "num":(a,b)=>String(a.num||"").localeCompare(String(b.num||""),"pt",{numeric:true})||porId(a,b),
+    "sit":(a,b)=>String((a.sit&&a.sit.txt)||"").localeCompare(String((b.sit&&b.sit.txt)||""))||porId(a,b)
+  }[ord]||porId;
+  return filtradas.sort(cmp);}
 window.renderEquip=()=>{
   const cx=$("eqLista");if(!cx)return;
   const tipo=($("eqTipo")&&$("eqTipo").value)||"ext";
@@ -1881,11 +1921,15 @@ window.renderVenc=()=>{
     if(fG==="inst"&&res)return;
     if(fG==="res"&&!res)return;
     if(fA&&rotuloAg(e)!==fA)return;
-    [["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([rot,dt])=>{
+    const niveis=[];
+    [["2\u00ba N\u00edvel",e.man2],["3\u00ba N\u00edvel",e.man3]].forEach(([rot,dt])=>{
       const dd=diasAte(dt);if(!passa(dd,dt))return;
-      /* o que está na Engex continua na lista de propósito — se a recarga demorar,
-         ninguém pode perder o vencimento de vista — mas vai marcado para não soar como esquecido */
-      linhas.push({d:dd,r:res,h:`<div class="venc"><span>${rotuloExt(e)} · <b>${rotuloAg(e)}</b> · Man. ${rot} ${fmtBR(dt)}${emManutencao(e)?` <span class="badge b-manut">🔧 na Engex desde ${fmtBR(e.manutDesde)}</span>`:""}<br><small style="color:var(--cinza)">${subExt(e)}</small></span>${badgeVenc(dd)}</div>`});});});
+      niveis.push({rot,dt,dd});});
+    if(!niveis.length)return;
+    /* Um cartao por EQUIPAMENTO, com os niveis dentro. Antes era uma linha por
+       nivel: o mesmo extintor aparecia duas vezes e o contador somava linhas. */
+    const pior=Math.min(...niveis.map(n=>n.dd));
+    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${rotuloExt(e)} \u00b7 <b>${rotuloAg(e)}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na Engex desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${subExt(e)}</small></span></div>`});});
   linhas.sort((a,b)=>a.d-b.d);
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
@@ -2036,6 +2080,7 @@ window.exportCondenados=async()=>{
   toast(`⬇️ ${arr.length} cilindro(s) exportado(s).`);};
 
 /* ---------- Detalhe ---------- */
+window.tentarFotoDeNovo=id=>{CACHE_FOTOS.delete(id);abrir(id);};
 window.abrir=async id=>{
   const i=ITENS.find(x=>x.id===id);if(!i)return;
   const cab=i.tipo==="ext"?`Extintor Nº ${i.eqNum??i.eqSeq}`:`Hidrante ${i.eqPat}`;
@@ -2055,6 +2100,11 @@ window.abrir=async id=>{
     <p style="font-size:12px;color:var(--cinza)">${fmtBR(i.data)} · ${i.inspetor||""}</p>
     ${detalhe}
     ${i.obs?`<p style="font-size:14px;margin-top:8px"><b>Obs:</b> ${i.obs}</p>`:""}
+    ${F.erro?`<div style="background:#FEF3E2;border:1px solid #F0C088;border-radius:10px;padding:12px;margin:10px 0">
+      <b style="color:#92400e">\uD83D\uDCF7 N\u00e3o foi poss\u00edvel carregar a foto</b>
+      <p style="font-size:12.5px;color:#92400e;margin:6px 0 0">A foto est\u00e1 salva no sistema \u2014 s\u00f3 n\u00e3o veio agora, por falta de sinal. Tente num lugar com conex\u00e3o melhor.</p>
+      <button class="btn sec" style="margin-top:10px" onclick="tentarFotoDeNovo('${id}')">\uD83D\uDD04 Tentar de novo</button>
+    </div>`:""}
     ${(F.foto1||F.foto2)?`<div class="fotosDet">
       ${F.foto1?`<img class="fdet" src="${F.foto1}" ${fotoClick(F.foto1,tituloFoto(i,1),nomeArqFoto(i,1))} alt="Foto 01 da inspeção">`:""}
       ${F.foto2?`<img class="fdet" src="${F.foto2}" ${fotoClick(F.foto2,tituloFoto(i,2),nomeArqFoto(i,2))} alt="Foto 02 da inspeção">`:""}
@@ -2081,8 +2131,10 @@ window.editarInspecao=async id=>{
       <div class="chk"><span>Visual mangueiras</span><select id="ehMang">${opt(h.mangueiras)}</select></div>
       <div class="chk"><span>Registro do hidrante</span><select id="ehReg">${opt(h.registro)}</select></div>`;
   }
-  const fotoEd=(n,src)=>`<div><label>Foto 0${n}</label>
-      ${src?`<img src="${src}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;display:block;margin-bottom:5px">`:`<p style="font-size:12px;color:var(--cinza2);margin-bottom:5px">Sem foto.</p>`}
+  const fotoEd=(n,src,erro)=>`<div><label>Foto 0${n}</label>
+      ${src?`<img src="${src}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;display:block;margin-bottom:5px">`
+        :erro?`<p style="font-size:12px;color:#92400e;margin-bottom:5px"><b>N\u00e3o carregou.</b><br>A foto existe, mas n\u00e3o veio \u2014 sinal fraco.</p>`
+        :`<p style="font-size:12px;color:var(--cinza2);margin-bottom:5px">Sem foto.</p>`}
       <input id="eF${n}" type="file" accept="image/*" capture="environment">
       ${src?`<label style="display:flex;align-items:center;gap:6px;text-transform:none;font-size:12px;margin-top:6px"><input type="checkbox" id="eDel${n}" style="width:auto"> Remover esta foto</label>`:""}</div>`;
   /* dados do equipamento: só extintor tem agente/carga informados no local */
@@ -2111,7 +2163,7 @@ window.editarInspecao=async id=>{
     <label>Data da inspeção</label>
     <input id="eData" type="date" value="${esc(String(i.data||"").slice(0,10))}">
     <label style="margin-top:14px">📷 Fotos (envie um arquivo para substituir)</label>
-    <div class="row">${fotoEd(1,FE.foto1)}${fotoEd(2,FE.foto2)}</div>
+    <div class="row">${fotoEd(1,FE.foto1,FE.erro)}${fotoEd(2,FE.foto2,FE.erro)}</div>
     <button class="btn" onclick="salvaEdicaoInspecao('${id}')">💾 Salvar correção</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   if(i.tipo==="ext"){
@@ -2175,6 +2227,8 @@ window.salvaEdicaoInspecao=async id=>{
         fAtu["foto"+n]=await comprimir(f.files[0],1000,.6,carimboEd);mexeuFoto=true;}
       else if(del&&del.checked){fAtu["foto"+n]="";mexeuFoto=true;}
     }
+    if((mexeuFoto||i.foto1||i.foto2)&&fAtu.erro){
+      return toast("\u26a0\uFE0F N\u00e3o consegui carregar as fotos atuais. Salvar agora apagaria as que est\u00e3o no sistema. Tente de novo com sinal melhor.");}
     if(mexeuFoto||i.foto1||i.foto2){
       await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
       patch.foto1="";patch.foto2="";patch.temFoto=!!(fAtu.foto1||fAtu.foto2);
