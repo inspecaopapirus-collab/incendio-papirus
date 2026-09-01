@@ -506,24 +506,36 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, on
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
-/* ======== MODO TESTE — LE DADOS REAIS, NAO GRAVA NADA ========
-   As 4 funcoes de gravacao do Firestore sao interceptadas aqui, num ponto
-   unico, cobrindo os 38 lugares do app. Para producao: MODO_TESTE = false. */
+/* ======== MODO TESTE — LE DADOS REAIS, GRAVA EM COPIAS teste_* ========
+   As gravacoes do Firestore passam por este ponto unico, que cobre os 38 lugares
+   do app. O caminho e reescrito: "config/cadastroExt" vira "teste_config/cadastroExt".
+   ATENCAO: a LEITURA continua vindo das colecoes reais, entao a tela nao reflete o
+   que foi gravado. A prova esta no botao "Conferir gravacoes" da barra vermelha, que
+   le os documentos teste_* e mostra exatamente o que subiu.
+   Para producao: MODO_TESTE = false (volta a gravar no caminho original). */
 const MODO_TESTE = true;
-const _bloqueia = nome => async (...args) => {
-  console.warn("[modo teste] gravacao bloqueada:", nome, (args[0] && (args[0].path || args[0].id)) || "");
-  try { toast("Modo teste \u2014 nada foi gravado"); } catch (e) {}
-  return false;
+const _pfx = ref => {
+  const p = String(ref.path || "").split("/");
+  if (!p[0].startsWith("teste_")) p[0] = "teste_" + p[0];
+  const cam = p.join("/");
+  /* caminho com numero impar de segmentos e colecao; par e documento */
+  return (p.length % 2) ? collection(ref.firestore, cam) : doc(ref.firestore, cam);
 };
-const setDoc    = MODO_TESTE ? _bloqueia("setDoc")    : _setDoc;
-const addDoc    = MODO_TESTE ? _bloqueia("addDoc")    : _addDoc;
-const updateDoc = MODO_TESTE ? _bloqueia("updateDoc") : _updateDoc;
-const deleteDoc = MODO_TESTE ? _bloqueia("deleteDoc") : _deleteDoc;
+window._TESTE_ESCRITAS = [];
+const _reg = (op, ref) => { try { window._TESTE_ESCRITAS.push(
+  { op, path: String((ref && ref.path) || "?"), quando: Date.now() }); } catch (e) {} };
+const setDoc    = MODO_TESTE ? (r, ...a) => { _reg("setDoc", r);    return _setDoc(_pfx(r), ...a); }    : _setDoc;
+const addDoc    = MODO_TESTE ? (r, ...a) => { _reg("addDoc", r);    return _addDoc(_pfx(r), ...a); }    : _addDoc;
+const updateDoc = MODO_TESTE ? (r, ...a) => { _reg("updateDoc", r); return _updateDoc(_pfx(r), ...a); } : _updateDoc;
+const deleteDoc = MODO_TESTE ? (r, ...a) => { _reg("deleteDoc", r); return _deleteDoc(_pfx(r), ...a); } : _deleteDoc;
 /* o lote grava por fora das 4 funcoes acima: sem esta trava ele escaparia do modo teste */
 const writeBatch = MODO_TESTE
-  ? () => ({ set(){return this;}, update(){return this;}, delete(){return this;},
-             async commit(){ console.warn("[modo teste] lote bloqueado");
-               try{toast("Modo teste \u2014 nada foi gravado");}catch(e){} return false; } })
+  ? d => { const b = _writeBatch(d);
+           const w = { set:    (r, ...a) => { _reg("lote.set", r);    b.set(_pfx(r), ...a);    return w; },
+                       update: (r, ...a) => { _reg("lote.update", r); b.update(_pfx(r), ...a); return w; },
+                       delete: (r)       => { _reg("lote.delete", r); b.delete(_pfx(r));       return w; },
+                       commit: () => b.commit() };
+           return w; }
   : _writeBatch;
 
 /* comTimeout devolve false quando a gravacao nao confirmou no prazo (offline, sinal ruim).
@@ -590,6 +602,50 @@ window.relatorioReserva = () => {
         : '<p style="margin-top:10px">A numera\u00e7\u00e3o est\u00e1 cont\u00ednua \u2014 os saltos vistos na tela s\u00e3o de filtro, n\u00e3o do cadastro.</p>'));
 };
 
+/* --- Diagnostico 6: o que o app realmente gravou nas copias teste_* --- */
+window.conferirGravacoes = async () => {
+  const feitas = window._TESTE_ESCRITAS || [];
+  if (!feitas.length) return _dlgAbre("<h3>Confer\u00eancia de grava\u00e7\u00f5es</h3>"
+    + "<p>Nenhuma grava\u00e7\u00e3o foi tentada desde que a p\u00e1gina abriu. Rode um dos fluxos "
+    + "(marcar Engex, retorno da recarga, verificar n\u00ba do local, editar equipamento, renumera\u00e7\u00e3o) "
+    + "e volte aqui \u2014 sem recarregar a p\u00e1gina.</p>");
+  const caminhos = [...new Set(feitas.map(e => e.path).filter(p => p.split("/").length % 2 === 0))];
+  $("dlgBody").innerHTML = "<h3>Confer\u00eancia de grava\u00e7\u00f5es</h3><p>Lendo " + caminhos.length + " documento(s)...</p>";
+  $("dlg").showModal();
+  const nOvr = o => (o && o.overrides && typeof o.overrides === "object") ? Object.keys(o.overrides).length : null;
+  const blocos = [];
+  for (const cam of caminhos) {
+    const seg = cam.split("/"), camT = ["teste_" + seg[0], ...seg.slice(1)].join("/");
+    let t = null, r = null, err = "";
+    try { const s = await getDoc(doc(db, camT)); t = s.exists() ? s.data() : null; }
+    catch (e) { err = String(e && e.message || e); }
+    try { const s = await getDoc(doc(db, cam)); r = s.exists() ? s.data() : null; } catch (e) {}
+    const qt = nOvr(t), qr = nOvr(r);
+    let corpo;
+    if (err) corpo = '<b style="color:var(--nc)">erro ao ler: ' + esc(err) + "</b>";
+    else if (!t) corpo = '<b style="color:var(--nc)">o documento de teste n\u00e3o existe \u2014 a grava\u00e7\u00e3o n\u00e3o chegou ao servidor</b>';
+    else {
+      corpo = "chaves gravadas: <b>" + esc(Object.keys(t).join(", ")) + "</b>";
+      if (qt !== null) {
+        corpo += "<br>posi\u00e7\u00f5es dentro de <code>overrides</code>: <b>" + qt + "</b>"
+          + (qr !== null ? ' <small style="color:var(--cinza)">(o documento real tem ' + qr + ")</small>" : "")
+          + (qt === 1 ? ' <b style="color:var(--ok)">\u2713 gravou s\u00f3 a posi\u00e7\u00e3o alterada</b>'
+                      : ' <b style="color:var(--nc)">\u26a0 gravou o mapa inteiro</b>');
+      }
+      corpo += '<br><small style="color:var(--cinza);word-break:break-all">'
+        + esc(JSON.stringify(t).slice(0, 700)) + "</small>";
+    }
+    blocos.push('<div class="venc"><span><b>' + esc(cam) + "</b><br>"
+      + '<small style="color:var(--cinza)">gravado em ' + esc(camT) + "</small><br>" + corpo + "</span></div>");
+  }
+  _dlgAbre("<h3>Confer\u00eancia de grava\u00e7\u00f5es</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">O app gravou nas c\u00f3pias <code>teste_*</code>. '
+    + "As telas continuam lendo os dados reais, ent\u00e3o elas <b>n\u00e3o</b> mudam \u2014 a prova do que subiu est\u00e1 aqui.</p>"
+    + '<div class="venc"><span><b>Grava\u00e7\u00f5es tentadas</b></span><span><b>' + feitas.length + "</b></span></div>"
+    + feitas.map(e => '<div class="venc"><span>' + esc(e.op) + " \u2192 " + esc(e.path) + "</span></div>").join("")
+    + '<h3 style="margin-top:14px">Conte\u00fado gravado</h3>' + blocos.join(""));
+};
+
 if (MODO_TESTE) {
   addEventListener("DOMContentLoaded", () => {
     const barra = document.createElement("div");
@@ -597,9 +653,9 @@ if (MODO_TESTE) {
       + "font:600 12px/1.5 system-ui,sans-serif;padding:7px 10px;display:flex;gap:8px;justify-content:center;"
       + "align-items:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.25)";
     const t = document.createElement("span");
-    t.textContent = "AMBIENTE DE TESTE \u2014 n\u00e3o grava nada";
+    t.textContent = "AMBIENTE DE TESTE \u2014 grava em c\u00f3pias teste_*";
     barra.appendChild(t);
-    [["Auditar fotos", "auditarFotos"], ["Cilindros repetidos", "relatorioDuplicados"], ["Vagas de reserva", "relatorioReserva"], ["Rastrear cilindro", "rastrearCilindro"], ["Hist. da reserva", "historicoReserva"]]
+    [["Auditar fotos", "auditarFotos"], ["Cilindros repetidos", "relatorioDuplicados"], ["Vagas de reserva", "relatorioReserva"], ["Rastrear cilindro", "rastrearCilindro"], ["Hist. da reserva", "historicoReserva"], ["Conferir grava\u00e7\u00f5es", "conferirGravacoes"]]
       .forEach(([rot, fn]) => {
         const b = document.createElement("button");
         b.textContent = rot;
@@ -2619,15 +2675,20 @@ window.laudoPDF=async()=>{
     return [...m.values()];};
   const ext=ultimaPorPonto(mes.filter(i=>i.tipo==="ext")),hid=ultimaPorPonto(mes.filter(i=>i.tipo==="hid"));
   const repetidos=mes.length-(ext.length+hid.length);
+  /* Decisao do Eder (01/09): quando o ponto foi inspecionado mais de uma vez no mes,
+     o laudo conta SO O ESTADO FINAL. Uma NC resolvida na reinspecao nao pesa mais no
+     percentual nem reaparece na secao 4. Os registros anteriores seguem intactos na
+     aba Registros e no historico do equipamento. */
+  const atual=[...ext,...hid];
   const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
   const totPontos=extRota.length+CAD.hid.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
-  const nc=mes.filter(i=>i.conformidade==="NC");
-  const div=mes.filter(i=>i.divergencia);
+  const nc=atual.filter(i=>i.conformidade==="NC");
+  const div=atual.filter(i=>i.divergencia);
   const condMes=CONDS.filter(c=>c.ativo!==false&&String(c.mes||String(c.data||"").slice(0,7))===pm)
     .sort((a,b)=>String(a.data||"").localeCompare(String(b.data||"")));
   const cobertura=totPontos?Math.round(100*inspSet.size/totPontos):0;
-  const confPct=mes.length?Math.round(100*(mes.length-nc.length)/mes.length):0;
+  const confPct=atual.length?Math.round(100*(atual.length-nc.length)/atual.length):0;
 
   /* assinaturas dos inspetores do mês */
   const assinMap={};
@@ -2658,7 +2719,7 @@ window.laudoPDF=async()=>{
     if(i.tipo==="ext")return Object.entries(i.checklist||{}).filter(([,v])=>v==="NC").map(([k])=>k);
     const h=i.hid||{},mapa={storz:"Storz",esguichos:"Esguichos",mangueiras:"Mangueiras",registro:"Registro"};
     return Object.entries(mapa).filter(([k])=>h[k]==="NC").map(([,v])=>v);};
-  const todasNC=mes.filter(i=>itensNC(i).length);
+  const todasNC=atual.filter(i=>itensNC(i).length);
   const FNC=new Map();for(const x of todasNC)FNC.set(x.id,await fotosDe(x));
 
   const html=`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -2675,6 +2736,7 @@ window.laudoPDF=async()=>{
     .k{flex:1;min-width:88px;border:1px solid #ddd;border-radius:6px;padding:7px 9px;text-align:center}
     .k b{display:block;font-size:17px;color:#7a1f2b}
     .k span{font-size:9.5px;color:#666;text-transform:uppercase;letter-spacing:.3px}
+    .nota{font-size:10.5px;color:#555;margin:2px 0 10px;padding-left:8px;border-left:3px solid #d8cfcf}
     table{width:100%;border-collapse:collapse;margin-top:4px}
     thead{display:table-header-group}
     th{background:#f1eded;text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;color:#5a5a5a;padding:5px 6px;border:1px solid #ddd}
@@ -2711,6 +2773,7 @@ window.laudoPDF=async()=>{
     <div class="k"><b>${nc.length}</b><span>Não conformes</span></div>
     <div class="k"><b>${div.length}</b><span>Divergências</span></div>
   </div>
+  <p class="nota">O percentual de conformidade considera os <b>itens críticos</b> do checklist. Não conformidades de <b>acesso e sinalização</b> ficam registradas no item e listadas na seção 4, sem alterar a conformidade do ponto${repetidos>0?", e os números acima consideram a inspeção mais recente de cada ponto":""}.</p>
 
   ${repetidos>0?`<p style="font-size:12px;color:#92400e">ℹ️ ${repetidos} ${repetidos===1?"ponto foi inspecionado":"pontos foram inspecionados"} mais de uma vez neste mês. A tabela mostra a inspeção mais recente de cada um; as anteriores continuam na aba Registros.</p>`:""}
   <h2>2. Extintores inspecionados (${ext.length})</h2>
@@ -2722,6 +2785,7 @@ window.laudoPDF=async()=>{
     <tbody>${hid.map(linhaHid).join("")}</tbody></table>`:`<p class="vazio">Nenhum hidrante inspecionado no período.</p>`}
 
   <h2>4. Não conformidades (${todasNC.length})</h2>
+  ${todasNC.length?`<p class="nota">Inclui não conformidades de acesso e sinalização, que por critério interno não alteram a conformidade do ponto — por isso este número pode ser maior que o de "Não conformes" no resumo.</p>`:""}
   ${todasNC.length?todasNC.map(i=>`<div class="ncbox">
       <div class="tt">${i.tipo==="ext"?`Ext ${i.eqSeq} · Nº ${esc(String(i.eqNum??"—"))}`:`Hidrante ${esc(String(i.eqPat??""))}`} — ${esc(i.eqLoc||"")}</div>
       <div>Itens não conformes: <b>${itensNC(i).map(esc).join(", ")}</b> · ${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
@@ -2770,7 +2834,7 @@ window.laudoPDF=async()=>{
   const w=window.open("","_blank");
   if(!w)return toast("Libere as janelas pop-up do navegador para gerar o laudo.");
   w.document.open();w.document.write(html);w.document.close();
-  audit("laudo_pdf",{mes:pm,inspecoes:mes.length,nc:todasNC.length});
+  audit("laudo_pdf",{mes:pm,pontos:atual.length,registros:mes.length,nc:todasNC.length});
   toast("📄 Laudo gerado — na janela de impressão escolha \"Salvar como PDF\".");};
 
 /* ---------- Backup ---------- */
