@@ -502,7 +502,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
 /* ======== MODO TESTE — LE DADOS REAIS, NAO GRAVA NADA ========
@@ -518,7 +518,17 @@ const setDoc    = MODO_TESTE ? _bloqueia("setDoc")    : _setDoc;
 const addDoc    = MODO_TESTE ? _bloqueia("addDoc")    : _addDoc;
 const updateDoc = MODO_TESTE ? _bloqueia("updateDoc") : _updateDoc;
 const deleteDoc = MODO_TESTE ? _bloqueia("deleteDoc") : _deleteDoc;
+/* o lote grava por fora das 4 funcoes acima: sem esta trava ele escaparia do modo teste */
+const writeBatch = MODO_TESTE
+  ? () => ({ set(){return this;}, update(){return this;}, delete(){return this;},
+             async commit(){ console.warn("[modo teste] lote bloqueado");
+               try{toast("Modo teste \u2014 nada foi gravado");}catch(e){} return false; } })
+  : _writeBatch;
 
+/* comTimeout devolve false quando a gravacao nao confirmou no prazo (offline, sinal ruim).
+   Antes o app dizia "pronto" de qualquer jeito, e o cadastro podia nunca subir. */
+window.avisaGravacao = (ok, msgOk) => toast(ok ? msgOk
+  : "\uD83D\uDCF4 Salvo no aparelho, ainda n\u00e3o no sistema \u2014 sobe quando houver conex\u00e3o. Confira depois.");
 const _dlgAbre = html => { $("dlgBody").innerHTML = html
   + '<button class="btn sec" style="margin-top:14px" onclick="dlg.close()">Fechar</button>'; $("dlg").showModal(); };
 
@@ -936,9 +946,9 @@ window.toggleEngex=async()=>{
   try{
     /* grava SO esta posicao. Antes regravava o mapa inteiro a partir da memoria:
        um aparelho com estado antigo (offline, por exemplo) apagava o trabalho dos outros. */
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
+    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
     audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num});
-    toast(ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
+    avisaGravacao(okEngex,ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
   }catch(e){toast("Erro ao salvar: "+e.message);}
 };
 
@@ -1658,11 +1668,11 @@ window.confirmaRetornoRecarga=async()=>{
   novo.man2=m2;novo.man3=m3;
   OVR[seq]=novo;
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:novo}},{merge:true}));
+    const okRet=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:novo}},{merge:true}));
     audit("retorno_recarga",{seq,num,retorno:dt,man2:m2,man3:m3});
     aplicaOvr();
     $("dlg").close();
-    toast(`✅ Nº ${num} voltou da recarga — disponível como reserva.`);
+    avisaGravacao(okRet,`✅ Nº ${num} voltou da recarga — disponível como reserva.`);
   }catch(e){
     OVR[seq]=anterior;                       /* devolve o estado anterior se a gravação falhar */
     toast("Erro ao registrar o retorno: "+e.message);}};
@@ -3239,16 +3249,27 @@ window.salvaNovoExt=async()=>{
   lista.forEach(e=>{if(+e.seq>=want)e.seq=+e.seq+1;});
   lista.push(novo);
   lista.sort((a,b)=>+a.seq-+b.seq);
+  const cadxOrig={...CADX};
   CADX={...CADX,extReset:true,extDel:[],extEdit:{},extAdd:lista};
   const novoOVR={};for(const k in OVR){novoOVR[+k>=want?String(+k+1):k]=OVR[k];}
   OVR=novoOVR;
+  /* Os dois documentos so fazem sentido juntos: OVR deslocado +1 e a lista deslocada +1.
+     Em gravacoes separadas, se a primeira falhasse depois do prazo, o cadastro ficava
+     permanentemente deslocado em 1 (cada override caindo no local errado). O lote grava
+     os dois de uma vez ou nenhum. */
+  const ovrAnterior=OVR, cadxAnterior=cadxOrig;
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
-    await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const lote=writeBatch(db);
+    lote.set(doc(db,"config","cadastroExt"),{overrides:OVR});
+    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    await lote.commit();
     aplicaOvr();audit("renumerar_locais",{aPartirDe:want,num:novo.num});
     $("dlg").close();
     toast(`✅ Local ${want} inserido — os locais seguintes foram renumerados. Reimprima as etiquetas de local a partir do ${want}.`);
-  }catch(e){toast("Erro na renumeração: "+e.message);}};
+  }catch(e){
+    /* desfaz na memoria: sem isto a tela mostraria a renumeracao que o servidor recusou */
+    OVR=ovrAnterior;CADX=cadxAnterior;aplicaOvr();
+    toast("Erro na renumeração, nada foi alterado: "+e.message);}};
 window.salvaNovoHid=()=>{
   if(!podeGravar())return;
   const pat=$("cPat").value.trim();if(!pat)return toast("Informe o patrimônio.");
@@ -3298,7 +3319,20 @@ window.abreEdicaoHidPat=pat=>{
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('hid','${h.pat}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
     $("dlg").showModal();};
+/* Um mesmo numero de cilindro em duas posicoes faz a inspecao de uma contar pela
+   outra: a posicao realmente nao inspecionada nunca aparece como pendente. Este
+   aviso nao existia, e foi por aqui que entraram os casos encontrados no cadastro. */
+window.confereNumeroUnico=(seqAtual,num)=>{
+  const n=String(num||"").trim();
+  if(!n)return true;
+  const jaTem=(CAD.ext||[]).filter(e=>String(e.seq)!==String(seqAtual)&&String(e.num??"").trim()===n);
+  if(!jaTem.length)return true;
+  const onde=jaTem.map(e=>(isReserva(e)?"Reserva ":"Ext ")+e.seq+(e.loc?" \u2014 "+e.loc:"")).join("\n");
+  return confirm("\u26a0\uFE0F O cilindro N\u00ba "+n+" j\u00e1 consta em:\n\n"+onde
+    +"\n\nUm mesmo cilindro em duas posi\u00e7\u00f5es faz a inspe\u00e7\u00e3o de uma contar pela outra, e a posi\u00e7\u00e3o que ningu\u00e9m inspecionou nunca aparece como pendente."
+    +"\n\nSalvar assim mesmo?");};
 window.salvaEdEquip=(t,id)=>{
+  if(t==="ext"&&!confereNumeroUnico(id,$("xNum").value.trim()))return;
   if(t==="ext")CADX.extEdit[id]={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
   else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
   salvaCADX("editar_equipamento",{t,id});};
@@ -3454,7 +3488,12 @@ window.processaLote=async modo=>{
             rem++;return;
           }
           const nv={};
-          if(num)nv.num=num;if(pat)nv.pat=pat;if(agp)nv.agp=agp;if(cgp)nv.cgp=cgp;if(locRaw)nv.loc=locRaw;
+          /* o modo "adicionar" ja recusa numero repetido; o modo "corrigir" nao recusava,
+             e por aqui tambem entra cilindro em duas posicoes */
+          if(num){const dono=CAD.ext.find(x=>String(x.seq)!==String(seq)&&String(x.num??"").trim()===num);
+            if(dono){pulos.push(`linha ${rn}: N\u00ba ${num} j\u00e1 consta em ${isReserva(dono)?"Reserva":"Ext"} ${dono.seq}`);return;}
+            nv.num=num;}
+          if(pat)nv.pat=pat;if(agp)nv.agp=agp;if(cgp)nv.cgp=cgp;if(locRaw)nv.loc=locRaw;
           if(fab)nv.fab=+fab||null;if(fabr)nv.fabricante=fabr;if(man2)nv.man2=man2;if(man3)nv.man3=man3;
           if(!Object.keys(nv).some(k=>String(nv[k]??"")!==String(e[k]??"")))return;
           CADX.extEdit[String(seq)]={...(CADX.extEdit[String(seq)]||{}),...nv};edit++;
