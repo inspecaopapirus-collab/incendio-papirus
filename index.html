@@ -389,6 +389,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="card hidden" id="posBox"></div>
  <div class="card hidden" id="manutBox"></div>
  <div class="card hidden" id="engexBox"></div>
+ <div class="card hidden" id="dupBox"></div>
  <div class="card" id="pendBox"></div>
  <details class="dobra">
  <summary>📈 Gráficos<small>Conformidade por mês e não conformidades por área</small></summary>
@@ -1901,6 +1902,22 @@ window.render=()=>{
       +emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
         <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · desde ${fmtBR(e.manutDesde)}</small></span>
         <span class="badge b-manut">manutenção</span></div>`).join("");}
+  /* Mesmo numero de cilindro em duas posicoes: a "ultima inspecao" e buscada pelo
+     numero, entao a inspecao de uma posicao conta pela outra — e a posicao que
+     ninguem inspecionou nunca aparece como pendente. E falha de cobertura. */
+  const db_=$("dupBox");
+  if(db_){
+    const porNum={};
+    (CAD.ext||[]).forEach(e=>{if(e.num==null||e.num==="")return;
+      const k=String(e.num).trim();(porNum[k]=porNum[k]||[]).push(e);});
+    const dups=Object.entries(porNum).filter(([,v])=>v.length>1)
+      .sort((a,b)=>String(a[0]).localeCompare(String(b[0]),"pt",{numeric:true}));
+    db_.classList.toggle("hidden",!dups.length);
+    if(dups.length)db_.innerHTML=`<b>⚠️ Cilindros em mais de uma posição (${dups.length})</b>
+      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">O mesmo número consta em duas posições. Como a última inspeção é buscada pelo número, a inspeção de uma conta pela outra — e a posição que ninguém inspecionou não aparece como pendente. Confira no campo qual está certa e corrija o cadastro.</p>`
+      +dups.map(([num,lista])=>`<div class="venc"><span>🧯 <b>Nº ${esc(num)}</b><br>`
+        +lista.map(e=>`<small style="color:var(--cinza)">${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc?` · ${esc(String(e.loc))}`:""}</small>`).join("<br>")
+        +`</span><span class="badge b-cond">repetido</span></div>`).join("");}
   /* pontos que hoje estão com um cilindro emprestado da Engex, no lugar do original em manutenção */
   const eb=$("engexBox");
   if(eb){
@@ -2587,7 +2604,21 @@ window.laudoPDF=async()=>{
   const pm=$("pMes").value;
   if(!pm)return toast("Escolha o mês no Painel.");
   const mes=ITENS.filter(i=>i.mes===pm);
-  const ext=mes.filter(i=>i.tipo==="ext"),hid=mes.filter(i=>i.tipo==="hid");
+  /* Um ponto inspecionado duas vezes no mes aparecia duas vezes na tabela e no titulo,
+     enquanto o indicador "Inspecionados" logo acima ja contava uma vez so (usa conjunto).
+     Aqui fica a inspecao MAIS RECENTE de cada ponto; as anteriores seguem no historico
+     e na aba Registros — nada e apagado, so deixa de duplicar o relatorio. */
+  const ultimaPorPonto=arr=>{
+    const m=new Map();
+    arr.forEach(i=>{
+      const k=i.tipo+"_"+(i.eqSeq??i.eqPat);
+      const a=m.get(k);
+      const maisNova=!a||String(i.data||"")>String(a.data||"")
+        ||(String(i.data||"")===String(a.data||"")&&(i.criadoEm||0)>(a.criadoEm||0));
+      if(maisNova)m.set(k,i);});
+    return [...m.values()];};
+  const ext=ultimaPorPonto(mes.filter(i=>i.tipo==="ext")),hid=ultimaPorPonto(mes.filter(i=>i.tipo==="hid"));
+  const repetidos=mes.length-(ext.length+hid.length);
   const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
   const totPontos=extRota.length+CAD.hid.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
@@ -2681,6 +2712,7 @@ window.laudoPDF=async()=>{
     <div class="k"><b>${div.length}</b><span>Divergências</span></div>
   </div>
 
+  ${repetidos>0?`<p style="font-size:12px;color:#92400e">ℹ️ ${repetidos} ${repetidos===1?"ponto foi inspecionado":"pontos foram inspecionados"} mais de uma vez neste mês. A tabela mostra a inspeção mais recente de cada um; as anteriores continuam na aba Registros.</p>`:""}
   <h2>2. Extintores inspecionados (${ext.length})</h2>
   ${ext.length?`<table><thead><tr><th>Local</th><th>Nº</th><th>Localização</th><th>Agente / Carga</th><th>Conf.</th><th>Diverg.</th><th>Data</th><th>Inspetor</th></tr></thead>
     <tbody>${ext.slice().sort((a,b)=>(a.eqSeq||0)-(b.eqSeq||0)).map(linhaExt).join("")}</tbody></table>`:`<p class="vazio">Nenhum extintor inspecionado no período.</p>`}
