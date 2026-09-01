@@ -475,6 +475,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <button class="btn sec" onclick="cadastrarInspetor()">👤 Cadastrar usuário</button>
  <button class="btn sec" onclick="gerenciarUsuarios()">👥 Usuários, perfis e admins</button>
  <button class="btn sec" onclick="verAuditoria()">🕵️ Auditoria</button>
+ <button class="btn sec" onclick="temposGravacao()">📶 Tempos de gravação</button>
  </div>
  </div>
  <details class="dobra adminOnly hidden">
@@ -765,10 +766,21 @@ const toast=m=>{const t=$("toast");t.textContent=m;t.style.display="block";setTi
    para o chao de fabrica. O que faltava: se o banco RECUSAR depois desse prazo,
    a rejeicao caia no vazio e o registro se perdia anunciando sucesso. Agora ela
    e sempre tratada e avisada na tela. */
+/* Mede quanto CADA gravacao levou de fato, inclusive as que passaram do prazo.
+   Serve para escolher o prazo com dado da operacao real em vez de palpite.
+   Fica so no aparelho (nao gera gravacao no banco) e guarda as ultimas 500. */
+const _TEMPOS_KEY="temposGravacao";
+const _regTempo=(ms,ok)=>{try{
+  const a=JSON.parse(localStorage.getItem(_TEMPOS_KEY)||"[]");
+  a.push({ms:Math.round(ms),ok:ok?1:0,em:Date.now()});
+  while(a.length>500)a.shift();
+  localStorage.setItem(_TEMPOS_KEY,JSON.stringify(a));}catch(e){}};
 const comTimeout=(p,ms=2500)=>{
+  const _t0=Date.now();
   let estourou=false;
   const prazo=new Promise(res=>setTimeout(()=>{estourou=true;res(false);},ms));
-  const orig=p.then(()=>true,err=>{
+  const orig=p.then(()=>{_regTempo(Date.now()-_t0,true);return true;},err=>{
+    _regTempo(Date.now()-_t0,false);
     if(!estourou)throw err;               /* dentro do prazo: quem chamou trata */
     console.error("[gravacao recusada apos o prazo]",err);
     toast("\u26a0\ufe0f N\u00c3O foi salvo: "+(err.code||err.message)+". Refa\u00e7a o lan\u00e7amento.");
@@ -1999,10 +2011,19 @@ window.render=()=>{
     const dups=Object.entries(porNum).filter(([,v])=>v.length>1)
       .sort((a,b)=>String(a[0]).localeCompare(String(b[0]),"pt",{numeric:true}));
     db_.classList.toggle("hidden",!dups.length);
+    /* A inspecao e' buscada pelo NUMERO do cilindro, entao com o numero repetido a
+       inspecao de um ponto conta pelo outro. Aqui olhamos pela POSICAO (eqSeq), que
+       e' o unico jeito de ver qual das duas nunca recebeu ninguem. */
+    const ultNaPosicao=seq=>{let m="";(ITENS||[]).forEach(i=>{
+      if(i.tipo!=="ext"||String(i.eqSeq)!==String(seq))return;
+      const d=String(i.data||"");if(d>m)m=d;});return m;};
     if(dups.length)db_.innerHTML=`<b>⚠️ Cilindros em mais de uma posição (${dups.length})</b>
       <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">O mesmo número consta em duas posições. Como a última inspeção é buscada pelo número, a inspeção de uma conta pela outra — e a posição que ninguém inspecionou não aparece como pendente. Confira no campo qual está certa e corrija o cadastro.</p>`
       +dups.map(([num,lista])=>`<div class="venc"><span>🧯 <b>Nº ${esc(num)}</b><br>`
-        +lista.map(e=>`<small style="color:var(--cinza)">${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc?` · ${esc(String(e.loc))}`:""}</small>`).join("<br>")
+        +lista.map(e=>{const u=ultNaPosicao(e.seq);
+        return `<small style="color:var(--cinza)">${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc?` · ${esc(String(e.loc))}`:""}`
+          +`<br>${u?`Última inspeção nesta posição: <b>${fmtBR(u)}</b>`
+                 :`<b style="color:var(--nc)">Nunca inspecionada nesta posição — confira no local</b>`}</small>`;}).join("<br>")
         +`</span><span class="badge b-cond">repetido</span></div>`).join("");}
   /* pontos que hoje estão com um cilindro emprestado da Engex, no lugar do original em manutenção */
   const eb=$("engexBox");
@@ -2694,6 +2715,33 @@ function audit(acao,det){
       window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.code||e&&e.message||e)});});
   }catch(e){console.error("[auditoria] falha sincrona:",acao,e);
     window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.message||e)});}}
+/* Quanto as gravacoes deste aparelho levam de verdade. Sem isso, o prazo de 2,5s
+   e' chute — e um aviso que aparece a toa deixa de ser lido. */
+window.temposGravacao=()=>{
+  let a=[];try{a=JSON.parse(localStorage.getItem(_TEMPOS_KEY)||"[]");}catch(e){}
+  const okAs=a.filter(x=>x.ok).map(x=>x.ms).sort((x,y)=>x-y);
+  if(okAs.length<5)return _dlgAbre("<h3>📶 Tempos de gravação</h3>"
+    + "<p>Ainda não há medições suficientes neste aparelho (" + okAs.length + " de 5 mínimas).</p>"
+    + '<p style="font-size:13px;color:var(--cinza)">Use o app normalmente por alguns dias e volte aqui. A medição fica só neste aparelho e não gera nenhuma gravação no sistema.</p>');
+  const pct=q=>okAs[Math.min(okAs.length-1,Math.floor(okAs.length*q))];
+  const mediana=pct(.5),p90=pct(.9),p95=pct(.95),pior=okAs[okAs.length-1];
+  const acima=lim=>okAs.filter(x=>x>lim).length;
+  const pc=n=>Math.round(100*n/okAs.length)+"%";
+  const linha=(r,v)=>'<div class="venc"><span>'+r+"</span><span><b>"+v+"</b></span></div>";
+  /* recomendacao simples: prazo que cobre 90% das gravacoes boas, arredondado */
+  const sug=Math.max(2.5,Math.ceil((p90/1000)*2)/2);
+  _dlgAbre("<h3>📶 Tempos de gravação</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Quanto o sistema levou para confirmar cada gravação <b>deste aparelho</b>. Só entram as que confirmaram — as que ainda estão na fila não contam.</p>'
+    + linha("Medições", okAs.length)
+    + linha("Metade confirma em até", (mediana/1000).toFixed(1)+" s")
+    + linha("9 em cada 10 em até", (p90/1000).toFixed(1)+" s")
+    + linha("Pior caso", (pior/1000).toFixed(1)+" s")
+    + '<div class="venc"><span>Passaram do prazo atual (2,5 s)<br><small style="color:var(--cinza)">cada uma dessas mostrou o aviso 📴 sem precisar</small></span><span><b>'
+      + pc(acima(2500)) + "</b></span></div>"
+    + linha("Passariam de 5 s", pc(acima(5000)))
+    + '<p style="margin-top:12px;font-size:13px"><b>Sugestão para este aparelho: prazo de ' + sug.toFixed(1).replace(".",",") + ' s.</b><br>'
+    + '<span style="color:var(--cinza)">É o que cobre 9 em cada 10 gravações boas. Prazo curto demais faz o aviso aparecer à toa e o inspetor parar de ler; longo demais deixa o salvamento lento.</span></p>'
+    + '<p style="font-size:12px;color:var(--cinza)">Peça a cada inspetor para abrir esta tela — o sinal varia de aparelho e de área da fábrica.</p>');};
 window.verAuditoria=async()=>{
   if(!ISADMIN)return;
   const snap=await getDocs(query(collection(db,"auditoria"),orderBy("em","desc"),limit(80)));
@@ -2750,9 +2798,14 @@ window.laudoPDF=async()=>{
   const confPct=atual.length?Math.round(100*(atual.length-nc.length)/atual.length):0;
 
   /* assinaturas dos inspetores do mês */
+  /* Se esta busca falhar, o laudo sai sem assinatura nenhuma. Antes o erro era
+     engolido e o documento parecia completo — inclusive para quem o recebe de fora. */
   const assinMap={};
+  let assinOk=true;
   try{const snap=await getDocs(collection(db,"usuarios"));
-    snap.docs.forEach(d=>{const u=d.data();if(u.nome)assinMap[u.nome]=u.assin||"";});}catch(e){}
+    snap.docs.forEach(d=>{const u=d.data();if(u.nome)assinMap[u.nome]=u.assin||"";});}
+  catch(e){assinOk=false;console.error("[assinaturas do laudo]",e);}
+  if(!assinOk)toast("⚠️ Não consegui carregar as assinaturas. O laudo vai sair sem elas — confira antes de enviar.");
   const inspetores=[...new Set(mes.map(i=>i.inspetor).filter(Boolean))];
 
   /* pendências agrupadas por área */
@@ -2876,6 +2929,7 @@ window.laudoPDF=async()=>{
     :`<p class="vazio">Nenhum cilindro condenado neste mês.</p>`}
 
   <h2>8. Responsáveis pela inspeção</h2>
+  ${assinOk?"":`<p class="nota" style="border-left-color:#b3261e;color:#b3261e"><b>⚠️ As assinaturas não puderam ser carregadas do sistema no momento em que este laudo foi gerado.</b> Os espaços abaixo estão em branco por falha técnica, não por ausência de responsável. Gere o laudo novamente com conexão estável antes de encaminhar.</p>`}
   <div class="assinaturas">
     ${inspetores.length?inspetores.map(n=>`<div class="ass">${assinMap[n]?`<img src="${assinMap[n]}">`:`<div style="height:52px"></div>`}<div class="ln">${esc(n)}<br><span style="color:#777;font-size:9px">Inspetor responsável</span></div></div>`).join("")
       :`<div class="ass"><div style="height:52px"></div><div class="ln">&nbsp;<br><span style="color:#777;font-size:9px">Inspetor responsável</span></div></div>`}
@@ -3244,9 +3298,19 @@ window.salvaCondenacao=async()=>{
     rotulo:"⛔ Confirmar condenação",voltar:"Cancelar"});
   if(!ok)return;
 
+  /* A foto e a evidencia de que o cilindro foi condenado. Se o processamento falhar,
+     antes a condenacao era gravada sem foto e a tela dizia que deu tudo certo — some
+     justamente a prova do caso em que ela mais importa. Agora quem decide e o usuario. */
   let foto="";
-  try{if(arqFoto)foto=await comprimir(arqFoto,1000,.6,[`Cilindro Nº ${num}`,`Condenado em ${fmtBR(data)}`,`Relatório ${relatorio}`]);}
-  catch(e){}
+  if(arqFoto){
+    try{foto=await comprimir(arqFoto,1000,.6,[`Cilindro Nº ${num}`,`Condenado em ${fmtBR(data)}`,`Relatório ${relatorio}`]);}
+    catch(e){
+      console.error("[foto da condenação]",e);
+      if(!confirm("⚠️ A foto não pôde ser processada e NÃO será anexada.\n\n"
+        +"A foto é a evidência da condenação do cilindro Nº "+num+".\n\n"
+        +"Registrar a condenação assim mesmo, sem foto?"))
+        return toast("Condenação cancelada. Tente outra foto ou refaça em outro aparelho.");}
+    if(!foto&&arqFoto)console.warn("[condenação] foto vazia apos comprimir");}
   const doc0={num:String(num),numKey:chaveCil(num),
     agente:eq?(eq.tipo||eq.agp||""):"",carga:eq?String(eq.carga??eq.cgp??""):"",
     fab:eq?(eq.fab||null):null,seqOrigem:eq?(eq.seq??null):null,
@@ -3259,7 +3323,9 @@ window.salvaCondenacao=async()=>{
     audit("condenar",`Nº ${num} · ${motivo} · relatório ${relatorio} · ${ondeEsta}`);
     fechaDlg();
     if(!gravou)return toast(`\u{1F4F4} Condena\u00e7\u00e3o do N\u00ba ${num} salva no aparelho - envia quando houver conex\u00e3o.`);
-    toast(`⛔ Cilindro Nº ${num} condenado. Substitua por um reserva quando puder.`);
+    toast(arqFoto&&!foto
+      ? `⛔ Cilindro Nº ${num} condenado — SEM a foto. Anexe a evidência depois pelo histórico.`
+      : `⛔ Cilindro Nº ${num} condenado. Substitua por um reserva quando puder.`);
   }catch(e){toast("Erro ao registrar a condenação: "+e.message);}};
 
 window.desfazerCondenacao=async(id)=>{
@@ -3725,18 +3791,32 @@ function dataCell(cell,gray,ext){
 function setWidths(ws,w){for(const k in w)ws.getColumn(k).width=w[k];}
 async function blocoAssinaturas(wb,ws,r,nomes){
   if(!nomes.size)return;
-  let us=[];try{const s=await getDocs(collection(db,"usuarios"));us=s.docs.map(d=>d.data());}catch(e){}
+  /* mesma armadilha do laudo: sem isto o relatorio sai sem assinatura e sem explicacao */
+  let us=[],assinOk=true;
+  try{const s=await getDocs(collection(db,"usuarios"));us=s.docs.map(d=>d.data());}
+  catch(e){assinOk=false;console.error("[assinaturas do Excel]",e);}
   let row=r+2;
   ws.getCell(row,2).value="Assinaturas dos responsáveis pela inspeção:";ws.getCell(row,2).font={bold:true,size:12};
+  if(!assinOk){row++;
+    const av=ws.getCell(row,2);
+    av.value="⚠️ As assinaturas não puderam ser carregadas do sistema. Os campos abaixo estão em branco por falha técnica — gere o relatório de novo com conexão estável antes de encaminhar.";
+    av.font={bold:true,color:{argb:"FFB3261E"}};
+    if(typeof window!=="undefined")try{toast("⚠️ Não consegui carregar as assinaturas. O relatório vai sair sem elas — confira antes de enviar.");}catch(e){}}
   row++;
   for(const n of nomes){
     const u=us.find(x=>(x.nome||"").trim().toLowerCase()===String(n).trim().toLowerCase());
+    let colou=false;
     if(u?.assin){try{
       const id=wb.addImage({base64:u.assin,extension:"png"});
       ws.addImage(id,{tl:{col:1,row:row-1},ext:{width:190,height:62}});
-    }catch(e){}}
+      colou=true;
+    }catch(e){console.error("[assinatura de "+n+"]",e);}}
     ws.getRow(row).height=50;
-    const c=ws.getCell(row+1,2);c.value=`${n}${u?.assin?"":" (sem assinatura cadastrada)"}`;
+    /* tres situacoes diferentes que antes viravam a mesma frase */
+    const obs=!assinOk?" (assinatura não carregada — falha técnica)"
+      :(u?.assin?(colou?"":" (assinatura não pôde ser inserida — falha técnica)")
+                :" (sem assinatura cadastrada)");
+    const c=ws.getCell(row+1,2);c.value=`${n}${obs}`;
     c.font={italic:true};c.border={top:{style:"thin"}};
     row+=3;}}
 
