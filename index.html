@@ -545,8 +545,8 @@ const writeBatch = MODO_TESTE
 
 /* comTimeout devolve false quando a gravacao nao confirmou no prazo (offline, sinal ruim).
    Antes o app dizia "pronto" de qualquer jeito, e o cadastro podia nunca subir. */
-window.avisaGravacao = (ok, msgOk) => toast(ok ? msgOk
-  : "\uD83D\uDCF4 Salvo no aparelho, ainda n\u00e3o no sistema \u2014 sobe quando houver conex\u00e3o. Confira depois.");
+window.avisaGravacao = (ok, msgOk, msgPend) => toast(ok ? msgOk : (msgPend
+  || "\uD83D\uDCF4 Salvo no aparelho, ainda n\u00e3o no sistema \u2014 sobe quando houver conex\u00e3o. Confira depois."));
 const _dlgAbre = html => { $("dlgBody").innerHTML = html
   + '<button class="btn sec" style="margin-top:14px" onclick="dlg.close()">Fechar</button>'; $("dlg").showModal(); };
 
@@ -1215,13 +1215,16 @@ async function carregarNome(u){
   if(!BLOQUEADO){try{setDoc(doc(db,"usuarios",u.uid),
     {email:u.email,ultimoAcesso:Date.now()},{merge:true});}catch(e){}}
   if(!NOME&&!BLOQUEADO){NOME=(prompt("Digite seu nome (aparecerá como responsável pela inspeção):")||"").trim();
-    if(NOME){try{await comTimeout(setDoc(doc(db,"usuarios",u.uid),{nome:NOME,email:u.email},{merge:true}));}catch(e){}}}
+    if(NOME){try{await comTimeout(setDoc(doc(db,"usuarios",u.uid),{nome:NOME,email:u.email},{merge:true}));}
+      catch(e){console.error("[perfil no login]",e);}}}
   pintaUInfo();}
 window.mudarNome=async()=>{
   const n=(prompt("Novo nome:",NOME)||"").trim();if(!n)return;NOME=n;
-  try{await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{nome:NOME,email:auth.currentUser.email},{merge:true}));}catch(e){}
+  let okNm=false;
+  try{okNm=await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{nome:NOME,email:auth.currentUser.email},{merge:true}));}
+  catch(e){pintaUInfo();return toast("Erro ao salvar o nome: "+e.message);}
   pintaUInfo();
-  toast("✅ Nome atualizado!");};
+  avisaGravacao(okNm,"✅ Nome atualizado!");};
 /* ---------- Assinatura do inspetor (sai no relatório Excel) ---------- */
 window.assinatura=()=>{
   $("dlgBody").innerHTML=`<h3>✍️ Minha assinatura</h3>
@@ -1241,8 +1244,8 @@ window.assinatura=()=>{
   window.limpaAssin=()=>ctx.clearRect(0,0,cv.width,cv.height);
   window.salvaAssin=async()=>{
     ASSIN=cv.toDataURL("image/png");
-    try{await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{assin:ASSIN,nome:NOME,email:auth.currentUser.email},{merge:true}));
-      pintaUInfo();$("dlg").close();toast("✅ Assinatura salva!");}
+    try{const okAs=await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{assin:ASSIN,nome:NOME,email:auth.currentUser.email},{merge:true}));
+      pintaUInfo();$("dlg").close();avisaGravacao(okAs,"✅ Assinatura salva!");}
     catch(e){toast("Erro: "+e.message);}};};
 
 /* As fotos ficam FORA do documento da inspecao, na colecao "fotos". Dentro do
@@ -1428,15 +1431,20 @@ window.salvar=async()=>{
         registro:$("hReg").value,outros:$("hOutros").value};}
     const ref=doc(collection(db,"inspecoes"));
     const ok=await comTimeout(setDoc(ref,base));
-    if(foto1||foto2)try{await comTimeout(setDoc(doc(db,"fotos",ref.id),{foto1,foto2,criadoEm:Date.now()}));}
-      catch(e){console.error("[fotos]",e);}
+    /* a foto vai para a colecao "fotos", separada do registro: se ela ficar para tras
+       o inspetor precisa saber, senao a inspecao conta como feita e sem evidencia. */
+    let okFoto=true;
+    if(foto1||foto2){try{okFoto=await comTimeout(setDoc(doc(db,"fotos",ref.id),{foto1,foto2,criadoEm:Date.now()}));}
+      catch(e){console.error("[fotos]",e);okFoto=false;}}
     ["fObs","fCargaLocal","fBusca"].forEach(i=>$(i).value="");
     $("fFoto1").value="";$("fFoto2").value="";$("fTipoLocal").value="";
     ["hQtdStorz","hTipoEsg","hQtdEsg","hQtdMang","hLances","hOutros"].forEach(i=>$(i).value="");
     CHK_EXT.forEach((c,i)=>{if($("ck"+i))$("ck"+i).value="C";});
     ["hStorz","hEsg","hMang","hReg"].forEach(i=>$(i).value="C");
     EQ=null;$("padraoBox").classList.add("hidden");ajustaCO2();
-    toast(ok?"✅ Inspeção registrada!":"📴 Salvo no aparelho — envia quando houver conexão.");
+    toast(ok&&okFoto?"✅ Inspeção registrada!"
+      :!ok?"📴 Salvo no aparelho — envia quando houver conexão."
+      :"⚠️ Inspeção registrada, mas a FOTO ainda não subiu. Confira o registro depois — pode ser preciso anexar de novo.");
   }catch(e){console.error(e);toast("Erro ao salvar: "+e.message);}
   $("btnSalvar").disabled=false;$("btnSalvar").textContent="Salvar inspeção";};
 
@@ -1621,16 +1629,16 @@ window.confirmaCorrecaoLocal=async()=>{
   const _patch={};
   [EQ.seq,ySeq].concat(seqSlot!=null?[seqSlot]:[]).forEach(sq=>{_patch[String(sq)]=OVR[String(sq)];});
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
-    if(novaReserva)await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
-    await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
+    const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
       posicao:EQ.seq,loc:EQ.loc||"",saiu:dX.num??"—",entrou:dY.num,verificacao:true,
       divergencia:!!ok,divergAceita:ok?ok.value:"",inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
     audit("verificacao_local",{local:EQ.seq,entrou:dY.num,saiu:dX.num,localEsvaziado:yEraReserva?null:ySeq});
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
-    toast(`✅ Local ${EQ.seq}: agora consta o Nº ${dY.num}.${dX.num?` Nº ${dX.num} virou reserva.`:""}${yEraReserva?"":` O local ${ySeq} ficou vazio até ser verificado.`}`);
+    avisaGravacao(okCad&&okCadx&&okMov,`✅ Local ${EQ.seq}: agora consta o Nº ${dY.num}.${dX.num?` Nº ${dX.num} virou reserva.`:""}${yEraReserva?"":` O local ${ySeq} ficou vazio até ser verificado.`}`);
   }catch(e){toast("Erro na verificação: "+e.message);}};
 
 /* Busca por nº do cilindro dentro do diálogo de troca */
@@ -1695,15 +1703,15 @@ window.confirmaTroca=async()=>{
      outro inspetor gravou. A troca mexe em duas posicoes, entao sobem duas. */
   const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
-    await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
-    toast(eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} foi para manutenção/recarga.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
+    avisaGravacao(okCad&&okMov,eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} foi para manutenção/recarga.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
   }catch(e){toast("Erro na substituição: "+e.message);}};
 
 /* ---------- Retorno da recarga ----------
@@ -2400,15 +2408,18 @@ window.salvaEdicaoInspecao=async id=>{
       patch.foto1="";patch.foto2="";patch.temFoto=!!(fAtu.foto1||fAtu.foto2);
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
-    await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
+    const okEd=await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
     audit("editar_inspecao",{id,tipo:i.tipo});
-    $("dlg").close();toast("✅ Inspeção corrigida!");
+    $("dlg").close();avisaGravacao(okEd,"✅ Inspeção corrigida!");
   }catch(e){toast("Erro ao salvar: "+e.message);}};
 window.excluir=async id=>{
   if(!ISADMIN)return toast("Apenas o administrador pode excluir registros.");
   if(!podeGravar())return;
   if(!confirm("Excluir este registro definitivamente?"))return;
-  try{await comTimeout(deleteDoc(doc(db,"inspecoes",id)));$("dlg").close();toast("🗑️ Registro excluído.");audit("excluir_inspecao",{id});}
+  try{const okDel=await comTimeout(deleteDoc(doc(db,"inspecoes",id)));$("dlg").close();
+    avisaGravacao(okDel,"🗑️ Registro excluído.",
+      "📴 Exclusão registrada no aparelho — só sai do sistema quando houver conexão. Confira depois.");
+    audit("excluir_inspecao",{id});}
   catch(e){toast("Erro ao excluir: "+e.message);}};
 
 /* ---------- IA (Gemini) ---------- */
@@ -2539,12 +2550,12 @@ window.mudaPerfil=async(uid,perfil)=>{
   if(!podeGravar())return gerenciarUsuarios();
   const u=USERS.find(x=>x.uid===uid);
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil},{merge:true}));
+    const okP=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil},{merge:true}));
     if(u)u.perfil=perfil;
     audit("mudar_perfil",{email:u?.email||uid,perfil});
     if(auth.currentUser&&auth.currentUser.uid===uid){PERFIL=perfil;recalcAdmin();}
     pintaUsuarios();
-    toast(`✅ ${u?.nome||"Usuário"} agora é ${PERFIS[perfil]}.`);
+    avisaGravacao(okP,`✅ ${u?.nome||"Usuário"} agora é ${PERFIS[perfil]}.`);
   }catch(e){toast("Erro: "+e.message);gerenciarUsuarios();}};
 
 window.renomearUsuario=async uid=>{
@@ -2554,12 +2565,12 @@ window.renomearUsuario=async uid=>{
   if(!novo||novo===u.nome)return;
   const antigo=String(u.nome||"").trim();
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),{nome:novo},{merge:true}));
+    const okN=await comTimeout(setDoc(doc(db,"usuarios",uid),{nome:novo},{merge:true}));
     u.nome=novo;audit("renomear_usuario",{email:u.email||uid,de:antigo,para:novo});
     if(auth.currentUser&&auth.currentUser.uid===uid){NOME=novo;pintaUInfo();}
     pintaUsuarios();
     const qtd=antigo?ITENS.filter(i=>String(i.inspetor||"").trim()===antigo).length:0;
-    toast(qtd?`✅ Nome atualizado. As ${qtd} inspeções antigas seguem com "${antigo}".`
+    avisaGravacao(okN,qtd?`✅ Nome atualizado. As ${qtd} inspeções antigas seguem com "${antigo}".`
              :"✅ Nome atualizado.");
   }catch(e){toast("Erro: "+e.message);}};
 
@@ -2582,16 +2593,17 @@ window.alternaAdmin=async uid=>{
   if(eraAdm&&auth.currentUser&&auth.currentUser.uid===uid)
     return toast("Você não pode tirar o seu próprio acesso de administrador.");
   try{
+    let okA=true;
     if(eraAdm){
       ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==em);
-      if(u.perfil==="admin"){await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"inspetor"},{merge:true}));u.perfil="inspetor";}
+      if(u.perfil==="admin"){okA=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"inspetor"},{merge:true}));u.perfil="inspetor";}
     }else{
       if(em&&!ADMINS.map(x=>String(x).toLowerCase()).includes(em))ADMINS.push(em);
-      await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"admin"},{merge:true}));u.perfil="admin";}
-    await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
+      okA=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"admin"},{merge:true}));u.perfil="admin";}
+    const okL=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
     audit(eraAdm?"remover_admin":"novo_admin",{email:em});
     pintaUsuarios();
-    toast(eraAdm?`☆ ${u.nome||em} não é mais administrador.`:`⭐ ${u.nome||em} agora é administrador.`);
+    avisaGravacao(okA&&okL,eraAdm?`☆ ${u.nome||em} não é mais administrador.`:`⭐ ${u.nome||em} agora é administrador.`);
   }catch(e){toast("Erro: "+e.message);}};
 
 window.encerrarAcesso=async uid=>{
@@ -2613,27 +2625,32 @@ window.encerrarAcesso=async uid=>{
     rotulo:"🚫 Encerrar o acesso",voltar:"Manter o acesso"});
   if(!ok)return;
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),
+    const okEnc=await comTimeout(setDoc(doc(db,"usuarios",uid),
       {perfil:"bloqueado",encerradoPor:NOME||auth.currentUser.email,encerradoEm:Date.now()},{merge:true}));
     u.perfil="bloqueado";
+    /* tirar da lista de admins faz parte de revogar o acesso: se so o perfil subir,
+       a pessoa continua administradora pela lista. Por isso entra no mesmo aviso. */
+    let okAdmL=true;
     if(em&&ADMINS.map(x=>String(x).toLowerCase()).includes(em)){
       ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==em);
-      try{await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));}catch(e){}}
+      try{okAdmL=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));}
+      catch(e){console.error("[admins]",e);okAdmL=false;}}
     audit("encerrar_acesso",{email:em,nome:u.nome||""});
     fechaDlg();setTimeout(gerenciarUsuarios,120);
-    toast(`🚫 Acesso de ${u.nome||em} encerrado.`);
+    avisaGravacao(okEnc&&okAdmL,`🚫 Acesso de ${u.nome||em} encerrado.`,
+      `⚠️ O encerramento do acesso de ${u.nome||em} ainda NÃO foi confirmado no sistema. Confira a lista de usuários antes de considerar revogado.`);
   }catch(e){toast("Erro: "+e.message);}};
 
 window.reativarUsuario=async uid=>{
   if(!ISADMIN||!podeGravar())return;
   const u=USERS.find(x=>x.uid===uid);if(!u)return;
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),
+    const okReat=await comTimeout(setDoc(doc(db,"usuarios",uid),
       {perfil:"inspetor",reativadoPor:NOME||auth.currentUser.email,reativadoEm:Date.now()},{merge:true}));
     u.perfil="inspetor";
     audit("reativar_acesso",{email:u.email||uid});
     pintaUsuarios();
-    toast(`↩️ ${u.nome||u.email} voltou como Inspetor. Ajuste o perfil se precisar.`);
+    avisaGravacao(okReat,`↩️ ${u.nome||u.email} voltou como Inspetor. Ajuste o perfil se precisar.`);
   }catch(e){toast("Erro: "+e.message);}};
 
 /* mantido para quem clicar no botão antigo — abre a mesma tela */
@@ -2653,22 +2670,42 @@ window.addAdmin=async()=>{
   const e=$("aEmail").value.trim().toLowerCase();
   if(!e||!e.includes("@"))return toast("Informe um e-mail válido.");
   if(!ADMINS.map(x=>String(x).toLowerCase()).includes(e))ADMINS.push(e);
-  try{await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));audit("novo_admin",{email:e});gerenciarUsuarios();toast("✅ Admin adicionado!");}
+  try{const okAd=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
+    audit("novo_admin",{email:e});gerenciarUsuarios();avisaGravacao(okAd,"✅ Admin adicionado!");}
   catch(err){toast("Erro: "+err.message);}};
 window.remAdmin=async e=>{
   if(!podeGravar())return;
   if(!confirm("Remover "+e+" dos administradores?"))return;
   ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==String(e).toLowerCase());
-  try{await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));audit("remover_admin",{email:e});gerenciarUsuarios();toast("Removido.");}
+  try{const okRm=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
+    audit("remover_admin",{email:e});gerenciarUsuarios();avisaGravacao(okRm,"Removido.");}
   catch(err){toast("Erro: "+err.message);}};
 
 /* ---------- Auditoria ---------- */
-function audit(acao,det){try{addDoc(collection(db,"auditoria"),{acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()});}catch(e){}}
+/* O try/catch antigo so pegava erro SINCRONO. Como addDoc devolve promessa, toda falha
+   de gravacao da trilha (regra, rede, cota) era descartada sem deixar rastro nenhum.
+   Agora fica no console e num contador que o admin ve na tela de auditoria. */
+window._AUDIT_FALHAS=[];
+function audit(acao,det){
+  try{
+    const pr=addDoc(collection(db,"auditoria"),{acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()});
+    if(pr&&pr.catch)pr.catch(e=>{
+      console.error("[auditoria] nao gravou:",acao,e);
+      window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.code||e&&e.message||e)});});
+  }catch(e){console.error("[auditoria] falha sincrona:",acao,e);
+    window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.message||e)});}}
 window.verAuditoria=async()=>{
   if(!ISADMIN)return;
   const snap=await getDocs(query(collection(db,"auditoria"),orderBy("em","desc"),limit(80)));
   const rows=snap.docs.map(d=>d.data());
-  $("dlgBody").innerHTML=`<h3>🕵️ Trilha de auditoria</h3><div style="font-size:12.5px;line-height:1.7;max-height:60vh;overflow:auto;margin-top:10px">`+
+  /* uma trilha que perde eventos em silencio nao serve como trilha: se alguma
+     gravacao falhou nesta sessao, o admin precisa ver antes de confiar na lista. */
+  const falhas=window._AUDIT_FALHAS||[];
+  const aviso=falhas.length?`<div style="border-left:4px solid var(--nc);background:#fdecea;padding:8px 10px;border-radius:6px;margin:8px 0;font-size:12.5px">
+      <b>⚠️ ${falhas.length} evento(s) não foram gravados na trilha nesta sessão.</b><br>
+      ${falhas.slice(-5).map(f=>`${esc(f.acao)} — ${esc(f.erro)}`).join("<br>")}
+      <br><small>A lista abaixo está incompleta. Recarregue e refaça se precisar de trilha completa.</small></div>`:"";
+  $("dlgBody").innerHTML=`<h3>🕵️ Trilha de auditoria</h3>${aviso}<div style="font-size:12.5px;line-height:1.7;max-height:60vh;overflow:auto;margin-top:10px">`+
     (rows.length?rows.map(r=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0"><b>${esc(r.acao)}</b> — ${esc(r.nome||r.email)}<br><small style="color:var(--cinza)">${new Date(r.em).toLocaleString("pt-BR")}${r.det?" · "+esc(JSON.stringify(r.det)).slice(0,140):""}</small></div>`).join(""):"Sem eventos registrados.")+
     `</div><button class="btn sec" onclick="dlg.close()">Fechar</button>`;
   $("dlg").showModal();};
@@ -3238,16 +3275,17 @@ window.desfazerCondenacao=async(id)=>{
     rotulo:"↩️ Desfazer condenação",voltar:"Manter condenado"});
   if(!ok)return;
   try{
-    await comTimeout(updateDoc(doc(db,"condenacoes",id),
+    const okDesf=await comTimeout(updateDoc(doc(db,"condenacoes",id),
       {ativo:false,desfeitoPor:NOME||auth.currentUser.email,desfeitoEm:Date.now()}));
     audit("desfazer-condenacao",`Nº ${c.num} · relatório ${c.relatorio||"—"}`);
-    fechaDlg();toast(`↩️ Condenação do Nº ${c.num} desfeita.`);
+    fechaDlg();avisaGravacao(okDesf,`↩️ Condenação do Nº ${c.num} desfeita.`);
   }catch(e){toast("Erro ao desfazer: "+e.message);}};
 
 /* ---------- Cadastro editável (admin) ---------- */
 async function salvaCADX(acao,det){
   if(!podeGravar())return;
-  try{await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));aplicaOvr();audit(acao,det);$("dlg").close();toast("✅ Cadastro atualizado!");}
+  try{const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    aplicaOvr();audit(acao,det);$("dlg").close();avisaGravacao(okCadx,"✅ Cadastro atualizado!");}
   catch(e){toast("Erro: "+e.message);}}
 /* ---------- Novo local (posição vazia, sem cilindro) ----------
    Cria só a posição: ID, descrição da localização e o padrão de agente/carga.
@@ -3295,11 +3333,11 @@ window.salvaNovoLocal=async()=>{
     agp:$("nlAgp").value,cgp,loc,pat:$("nlPat").value.trim()||seq};
   CADX.extAdd.push(novo);
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okNL=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();audit("novo_local",{seq,loc,padrao:`${novo.agp} ${cgp}`});
     try{render();}catch(e){}
     $("dlg").close();
-    toast(`📍 Local ${seq} criado — ${loc}. Imprima a etiqueta QR e verifique o cilindro em campo.`);
+    avisaGravacao(okNL,`📍 Local ${seq} criado — ${loc}. Imprima a etiqueta QR e verifique o cilindro em campo.`);
   }catch(e){
     CADX.extAdd=CADX.extAdd.filter(x=>x!==novo);
     toast("Erro ao criar o local: "+e.message);}};
@@ -3644,11 +3682,11 @@ window.processaLote=async modo=>{
       }});
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
     if(modo==="edit"&&!edit&&!rem)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
-    await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okImp=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();
     audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)});
     $("dlg").close();
-    toast(`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
+    avisaGravacao(okImp,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
   }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Export Excel (idêntico ao modelo) ---------- */
