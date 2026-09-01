@@ -389,6 +389,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="card hidden" id="posBox"></div>
  <div class="card hidden" id="manutBox"></div>
  <div class="card hidden" id="engexBox"></div>
+ <div class="card hidden" id="resBox"></div>
  <div class="card hidden" id="dupBox"></div>
  <div class="card" id="pendBox"></div>
  <details class="dobra">
@@ -1001,6 +1002,17 @@ function mostraPadrao(){
       Fabricação: <b>${fmtBR(EQ.fab)}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
       Próx. Man. 2º Nível: <b>${fmtBR(EQ.man2)}</b> · 3º Nível: <b>${fmtBR(EQ.man3)}</b>
+      ${(()=>{ /* O inspetor confere o numero e, batendo, segue direto para a inspecao — entao
+                    ele nunca veria que o mesmo numero consta em outra posicao. O app precisa dizer. */
+        if(!EQ.num)return "";
+        const outras=(CAD.ext||[]).filter(e=>String(e.seq)!==String(EQ.seq)&&String(e.num??"").trim()===String(EQ.num).trim());
+        if(!outras.length)return "";
+        const onde=outras.map(e=>`${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc&&!isReserva(e)?` — ${esc(String(e.loc))}`:""}`).join(", ");
+        return `<div style="border-left:4px solid var(--nc);background:#fdecea;border-radius:6px;padding:8px 10px;margin:10px 0;font-size:12.5px;line-height:1.55">
+          <b style="color:var(--nc)">⚠️ Este número também consta em ${onde}.</b><br>
+          Enquanto estiver assim, a inspeção de um ponto conta pelo outro e o que ninguém visitar não aparece como pendente.<br>
+          <b>Se o cilindro que está fisicamente aqui é o Nº ${esc(String(EQ.num))}</b>, toque abaixo e escolha esse mesmo número — o sistema confirma aqui e limpa a outra posição.
+          <br><button type="button" class="abtn" style="margin-top:8px" onclick="corrigirLocal()">🔎 Resolver a duplicidade</button></div>`;})()}
       ${!EQ.num&&!isReserva(EQ)&&!EQ.engex?`<br><b style="color:var(--warn)">⚠️ Local vazio — abra "Ações do equipamento" e use "Verificar nº do local".</b>`:""}
       ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro Engex ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
       ${isReserva(EQ)&&!cd?`<br><span class="badge" style="background:var(--cinza2);margin-top:8px">RESERVA</span>`:""}
@@ -1623,6 +1635,13 @@ window.confirmaCorrecaoLocal=async()=>{
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const dY={},vazio={},dX={};
   CAMPOS.forEach(c=>{dY[c]=Y[c]??null;vazio[c]=null;dX[c]=EQ[c]??null;});
+  /* MESMO NUMERO nos dois lados = o cilindro nao mudou de lugar; o que existe e' uma
+     copia do numero em outra posicao. A trava antiga so comparava a POSICAO, entao
+     este caso passava e o codigo tratava o cilindro daqui como "deslocado", parando
+     uma copia dele numa vaga de reserva livre — criando um duplicado novo a cada vez.
+     Foi assim que nasceram as reservas 222, 223, 224 e 225, em sequencia.
+     Agora o fluxo faz o contrario: confirma o numero aqui e ESVAZIA a outra posicao. */
+  const mesmoNumero=String(dX.num??"").trim()!==""&&String(dX.num??"").trim()===String(dY.num??"").trim();
   /* a gravacao usa merge, que nao remove chave ausente: sem estes nulos a vaga
      esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
   ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
@@ -1630,7 +1649,7 @@ window.confirmaCorrecaoLocal=async()=>{
   {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false,seqSlot=null;
-  if(dX.num){                /* o que constava aqui vira reserva */
+  if(dX.num&&!mesmoNumero){  /* o que constava aqui vira reserva */
     const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
     if(slot){OVR[String(slot.seq)]=dX;seqSlot=slot.seq;}
     else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
@@ -1644,13 +1663,16 @@ window.confirmaCorrecaoLocal=async()=>{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
     const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
     const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
-      posicao:EQ.seq,loc:EQ.loc||"",saiu:dX.num??"—",entrou:dY.num,verificacao:true,
+      posicao:EQ.seq,loc:EQ.loc||"",saiu:mesmoNumero?"—":(dX.num??"—"),entrou:dY.num,verificacao:true,
+      duplicidade:mesmoNumero||null,limpouPosicao:mesmoNumero?ySeq:null,
       divergencia:!!ok,divergAceita:ok?ok.value:"",inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
     audit("verificacao_local",{local:EQ.seq,entrou:dY.num,saiu:dX.num,localEsvaziado:yEraReserva?null:ySeq});
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
-    avisaGravacao(okCad&&okCadx&&okMov,`✅ Local ${EQ.seq}: agora consta o Nº ${dY.num}.${dX.num?` Nº ${dX.num} virou reserva.`:""}${yEraReserva?"":` O local ${ySeq} ficou vazio até ser verificado.`}`);
+    avisaGravacao(okCad&&okCadx&&okMov, mesmoNumero
+      ? `✅ Duplicidade resolvida: o Nº ${dY.num} fica só no local ${EQ.seq}. ${yEraReserva?`A vaga de reserva ${ySeq}`:`O local ${ySeq}`} foi esvaziado.`
+      : `✅ Local ${EQ.seq}: agora consta o Nº ${dY.num}.${dX.num?` Nº ${dX.num} virou reserva.`:""}${yEraReserva?"":` O local ${ySeq} ficou vazio até ser verificado.`}`);
   }catch(e){toast("Erro na verificação: "+e.message);}};
 
 /* Busca por nº do cilindro dentro do diálogo de troca */
@@ -1975,6 +1997,24 @@ window.render=()=>{
     if(!lista.length)return `<p style="font-size:12.5px;color:var(--ok);margin:6px 0 2px">✅ Todos os ${rotulo} inspecionados!</p>`;
     const areas={};lista.forEach(p=>{const a=normRota(p.loc);(areas[a]=areas[a]||[]).push(p);});
     return Object.keys(areas).sort().map(a=>`<details style="margin:6px 0"><summary style="font-weight:700;font-size:13px;cursor:pointer">${esc(a)} (${areas[a].length})</summary>${areas[a].map(p=>`<div class="venc" style="cursor:pointer" onclick="irPara('${p.t}','${String(p.id).replace(/'/g,"")}')"><span>${p.lb}<br><small style="color:var(--cinza)">${esc(p.loc)}</small></span><span>➡️</span></div>`).join("")}</details>`).join("");};
+  /* Pool de reserva sem inspecao no mes.
+     Os cilindros de reserva entram na rota igual aos instalados, mas ficavam
+     diluidos na lista de pendencias por area — em 08/2026 as 25 pendencias do mes
+     eram TODAS de reserva e ninguem percebeu. Aqui viram cartao proprio. */
+  const rb=$("resBox");
+  if(rb){
+    const resRota=extRota.filter(e=>isReserva(e));
+    const resPend=resRota.filter(e=>!inspEq.has("ext_"+e.seq));
+    rb.classList.toggle("hidden",!resPend.length);
+    if(resPend.length){
+      const todas=resPend.length===resRota.length;
+      rb.innerHTML=`<b>🧯 Pool de reserva sem inspeção neste mês (${resPend.length} de ${resRota.length})</b>`
+        +(todas?`<p style="font-size:13px;color:var(--nc);font-weight:700;margin:6px 0 4px">Nenhum cilindro do pool foi inspecionado neste mês.</p>`:"")
+        +`<p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">Os cilindros de reserva entram na rota como qualquer outro — são eles que assumem o lugar quando um extintor vai para recarga. Quem não é inspecionado aqui vira um ponto cego.</p>`
+        +resPend.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 <b>Nº ${esc(String(e.num??"—"))}</b>`
+          +`<br><small style="color:var(--cinza)">Reserva ${esc(String(e.seq))}${e.tipo||e.agp?` · ${esc(String(e.tipo||e.agp))}`:""}${e.carga??e.cgp?` ${esc(String(e.carga??e.cgp))}`:""}</small>`
+          +`</span><span class="badge b-cond">sem inspeção</span></div>`).join("");}}
+
   /* posições que ficaram sem cilindro por causa de uma condenação */
   const pb=$("posBox");
   if(pb){
@@ -2906,6 +2946,9 @@ window.laudoPDF=async()=>{
     </div>`).join(""):`<p class="vazio">Nenhuma não conformidade registrada no período.</p>`}
 
   <h2>5. Pendências do período (${totPontos-inspSet.size})</h2>
+  ${(()=>{const rr=extRota.filter(e=>isReserva(e)),rp=rr.filter(e=>!inspSet.has("ext_"+e.seq));
+    if(!rp.length)return "";
+    return `<p class="nota" style="border-left-color:#b3261e;color:#b3261e"><b>${rp.length===rr.length?"Nenhum":`${rp.length} de ${rr.length}`} cilindro(s) do pool de reserva ${rp.length===rr.length?"foi inspecionado":"ficaram sem inspeção"} neste período.</b> Os cilindros de reserva entram na rota como os instalados — são eles que assumem o lugar quando um extintor vai para recarga.</p>`;})()}
   ${Object.keys(pend).length?Object.keys(pend).sort().map(a=>`<div class="area"><b>${esc(a)}</b> (${pend[a].length}): ${pend[a].map(esc).join(" · ")}</div>`).join(""):`<p class="vazio">Rota do mês 100% cumprida.</p>`}
 
   <h2>6. Manutenções vencidas ou a vencer em 90 dias</h2>
