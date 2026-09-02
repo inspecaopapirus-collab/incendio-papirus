@@ -515,7 +515,7 @@ import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gst
    que foi gravado. A prova esta no botao "Conferir gravacoes" da barra vermelha, que
    le os documentos teste_* e mostra exatamente o que subiu.
    Para producao: MODO_TESTE = false (volta a gravar no caminho original). */
-const MODO_TESTE = true;
+const MODO_TESTE = false;
 const _pfx = ref => {
   const p = String(ref.path || "").split("/");
   if (!p[0].startsWith("teste_")) p[0] = "teste_" + p[0];
