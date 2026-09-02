@@ -389,6 +389,8 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="card hidden" id="posBox"></div>
  <div class="card hidden" id="manutBox"></div>
  <div class="card hidden" id="engexBox"></div>
+ <div class="card hidden" id="resBox"></div>
+ <div class="card hidden" id="dupBox"></div>
  <div class="card" id="pendBox"></div>
  <details class="dobra">
  <summary>📈 Gráficos<small>Conformidade por mês e não conformidades por área</small></summary>
@@ -438,6 +440,12 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <option value="manut">Em manutenção</option>
  <option value="cond">Condenados</option>
  </select>
+ <select id="eqOrd" onchange="renderEquip()" aria-label="Ordenação">
+ <option value="loc">Local: menor → maior</option>
+ <option value="loc-desc">Local: maior → menor</option>
+ <option value="num">Nº do cilindro</option>
+ <option value="sit">Situação</option>
+ </select>
  <input id="eqBusca" placeholder="Buscar nº, patrimônio ou local…" oninput="renderEquip()">
  </div>
  <button class="btn sec" onclick="exportEquipXLSX()">⬇️ Exportar lista em Excel</button>
@@ -468,6 +476,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <button class="btn sec" onclick="cadastrarInspetor()">👤 Cadastrar usuário</button>
  <button class="btn sec" onclick="gerenciarUsuarios()">👥 Usuários, perfis e admins</button>
  <button class="btn sec" onclick="verAuditoria()">🕵️ Auditoria</button>
+ <button class="btn sec" onclick="temposGravacao()">📶 Tempos de gravação</button>
  </div>
  </div>
  <details class="dobra adminOnly hidden">
@@ -496,8 +505,228 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
+
+/* ======== MODO TESTE — LE DADOS REAIS, GRAVA EM COPIAS teste_* ========
+   As gravacoes do Firestore passam por este ponto unico, que cobre os 38 lugares
+   do app. O caminho e reescrito: "config/cadastroExt" vira "teste_config/cadastroExt".
+   ATENCAO: a LEITURA continua vindo das colecoes reais, entao a tela nao reflete o
+   que foi gravado. A prova esta no botao "Conferir gravacoes" da barra vermelha, que
+   le os documentos teste_* e mostra exatamente o que subiu.
+   Para producao: MODO_TESTE = false (volta a gravar no caminho original). */
+const MODO_TESTE = false;
+const _pfx = ref => {
+  const p = String(ref.path || "").split("/");
+  if (!p[0].startsWith("teste_")) p[0] = "teste_" + p[0];
+  const cam = p.join("/");
+  /* caminho com numero impar de segmentos e colecao; par e documento */
+  return (p.length % 2) ? collection(ref.firestore, cam) : doc(ref.firestore, cam);
+};
+window._TESTE_ESCRITAS = [];
+/* o documento de teste ACUMULA (cada fluxo soma posicoes), entao contar as posicoes
+   nele nao prova nada. O que prova e quantas posicoes CADA gravacao mandou no corpo. */
+const _reg = (op, ref, dados) => { try {
+  const ov = dados && dados.overrides;
+  const n = (ov && typeof ov === "object") ? Object.keys(ov).length : null;
+  window._TESTE_ESCRITAS.push({ op, path: String((ref && ref.path) || "?"), posicoes: n, quando: Date.now() });
+} catch (e) {} };
+const setDoc    = MODO_TESTE ? (r, ...a) => { _reg("setDoc", r, a[0]);    return _setDoc(_pfx(r), ...a); }    : _setDoc;
+const addDoc    = MODO_TESTE ? (r, ...a) => { _reg("addDoc", r, a[0]);    return _addDoc(_pfx(r), ...a); }    : _addDoc;
+const updateDoc = MODO_TESTE ? (r, ...a) => { _reg("updateDoc", r, a[0]); return _updateDoc(_pfx(r), ...a); } : _updateDoc;
+const deleteDoc = MODO_TESTE ? (r, ...a) => { _reg("deleteDoc", r); return _deleteDoc(_pfx(r), ...a); } : _deleteDoc;
+/* o lote grava por fora das 4 funcoes acima: sem esta trava ele escaparia do modo teste */
+const writeBatch = MODO_TESTE
+  ? d => { const b = _writeBatch(d);
+           const w = { set:    (r, ...a) => { _reg("lote.set", r, a[0]);    b.set(_pfx(r), ...a);    return w; },
+                       update: (r, ...a) => { _reg("lote.update", r); b.update(_pfx(r), ...a); return w; },
+                       delete: (r)       => { _reg("lote.delete", r); b.delete(_pfx(r));       return w; },
+                       commit: () => b.commit() };
+           return w; }
+  : _writeBatch;
+
+/* comTimeout devolve false quando a gravacao nao confirmou no prazo (offline, sinal ruim).
+   Antes o app dizia "pronto" de qualquer jeito, e o cadastro podia nunca subir. */
+window.avisaGravacao = (ok, msgOk, msgPend) => toast(ok ? msgOk : (msgPend
+  || "\uD83D\uDCF4 Salvo no aparelho, ainda n\u00e3o no sistema \u2014 sobe quando houver conex\u00e3o. Confira depois."));
+const _dlgAbre = html => { $("dlgBody").innerHTML = html
+  + '<button class="btn sec" style="margin-top:14px" onclick="dlg.close()">Fechar</button>'; $("dlg").showModal(); };
+
+/* --- Diagnostico 1: fotos marcadas que nao existem no banco (so leitura) --- */
+window.auditarFotos = async () => {
+  const marcadas = ((typeof ITENS !== "undefined" && ITENS) ? ITENS : []).filter(i => i.temFoto);
+  const amostra = marcadas.slice(0, 60);
+  if (!amostra.length) return _dlgAbre("<h3>Auditoria de fotos</h3><p>Nenhuma inspecao com foto carregada.</p>");
+  $("dlgBody").innerHTML = "<h3>Auditoria de fotos</h3><p>Conferindo " + amostra.length + " registros...</p>";
+  $("dlg").showModal();
+  const faltando = []; let achou = 0;
+  for (const i of amostra) {
+    if (i.foto1 || i.foto2) { achou++; continue; }
+    try { const d = await getDoc(doc(db, "fotos", i.id));
+      if (d.exists() && (d.data().foto1 || d.data().foto2)) achou++; else faltando.push(i);
+    } catch (e) { faltando.push(i); }
+  }
+  _dlgAbre("<h3>Auditoria de fotos</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Amostra: ' + amostra.length + " mais recentes, de " + marcadas.length + " marcados.</p>"
+    + '<div class="venc"><span><b>Foto encontrada</b></span><span>' + achou + "</span></div>"
+    + '<div class="venc"><span><b>Foto ausente</b></span><span><b>' + faltando.length + "</b></span></div>"
+    + (faltando.length ? faltando.map(i => '<div class="venc"><span>Ext ' + esc(String(i.eqSeq ?? "?")) + " N\u00ba " + esc(String(i.eqNum ?? "\u2014"))
+        + '<br><small style="color:var(--cinza)">' + esc(String(i.data || "")) + "</small></span></div>").join("") : ""));
+};
+
+/* --- Diagnostico 2: numeros de cilindro repetidos em duas posicoes --- */
+window.relatorioDuplicados = () => {
+  const porNum = {};
+  (CAD.ext || []).forEach(e => { if (e.num == null || e.num === "") return;
+    const k = String(e.num).trim(); (porNum[k] = porNum[k] || []).push(e); });
+  const dups = Object.entries(porNum).filter(([, v]) => v.length > 1)
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]), "pt", { numeric: true }));
+  const ondeEsta = e => (isReserva(e) ? "Reserva " : "Ext ") + esc(String(e.seq))
+    + (e.loc ? ' <small style="color:var(--cinza)">' + esc(String(e.loc)) + "</small>" : "");
+  _dlgAbre("<h3>Cilindros em mais de uma posi\u00e7\u00e3o</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Cada n\u00famero abaixo aparece em duas ou mais posi\u00e7\u00f5es do cadastro. Decis\u00e3o caso a caso: s\u00f3 quem viu o equipamento sabe onde ele est\u00e1.</p>'
+    + '<div class="venc"><span><b>N\u00fameros repetidos</b></span><span><b>' + dups.length + "</b></span></div>"
+    + dups.map(([num, lista]) => '<div class="venc"><span><b>N\u00ba ' + esc(num) + "</b><br>"
+        + lista.map(ondeEsta).join("<br>") + "</span></div>").join(""));
+};
+
+/* --- Diagnostico 3: buracos na numeracao das vagas de reserva --- */
+window.relatorioReserva = () => {
+  const res = (CAD.ext || []).filter(e => isReserva(e));
+  const seqs = res.map(e => +e.seq).filter(n => !isNaN(n)).sort((a, b) => a - b);
+  if (!seqs.length) return _dlgAbre("<h3>Vagas de reserva</h3><p>Nenhuma vaga de reserva encontrada.</p>");
+  const min = seqs[0], max = seqs[seqs.length - 1], set = new Set(seqs);
+  const buracos = []; for (let n = min; n <= max; n++) if (!set.has(n)) buracos.push(n);
+  const cond = res.filter(e => ehCondenado(e)).length;
+  const vazias = res.filter(e => !e.num).length;
+  _dlgAbre("<h3>Vagas de reserva</h3>"
+    + '<div class="venc"><span>Faixa usada</span><span>' + min + " a " + max + "</span></div>"
+    + '<div class="venc"><span>Vagas existentes</span><span>' + seqs.length + "</span></div>"
+    + '<div class="venc"><span><b>Buracos reais na numera\u00e7\u00e3o</b></span><span><b>' + buracos.length + "</b></span></div>"
+    + '<div class="venc"><span>Com cilindro condenado</span><span>' + cond + "</span></div>"
+    + '<div class="venc"><span>Vagas vazias (sem cilindro)</span><span>' + vazias + "</span></div>"
+    + (buracos.length ? '<p style="margin-top:10px"><b>Faltando:</b> ' + buracos.join(", ") + "</p>"
+        : '<p style="margin-top:10px">A numera\u00e7\u00e3o est\u00e1 cont\u00ednua \u2014 os saltos vistos na tela s\u00e3o de filtro, n\u00e3o do cadastro.</p>'));
+};
+
+/* --- Diagnostico 6: o que o app realmente gravou nas copias teste_* --- */
+window.conferirGravacoes = async () => {
+  const feitas = window._TESTE_ESCRITAS || [];
+  if (!feitas.length) return _dlgAbre("<h3>Confer\u00eancia de grava\u00e7\u00f5es</h3>"
+    + "<p>Nenhuma grava\u00e7\u00e3o foi tentada desde que a p\u00e1gina abriu. Rode um dos fluxos "
+    + "(marcar Engex, retorno da recarga, verificar n\u00ba do local, editar equipamento, renumera\u00e7\u00e3o) "
+    + "e volte aqui \u2014 sem recarregar a p\u00e1gina.</p>");
+  const caminhos = [...new Set(feitas.map(e => e.path).filter(p => p.split("/").length % 2 === 0))];
+  $("dlgBody").innerHTML = "<h3>Confer\u00eancia de grava\u00e7\u00f5es</h3><p>Lendo " + caminhos.length + " documento(s)...</p>";
+  $("dlg").showModal();
+  const nOvr = o => (o && o.overrides && typeof o.overrides === "object") ? Object.keys(o.overrides).length : null;
+  const blocos = [];
+  for (const cam of caminhos) {
+    const seg = cam.split("/"), camT = ["teste_" + seg[0], ...seg.slice(1)].join("/");
+    let t = null, r = null, err = "";
+    try { const s = await getDoc(doc(db, camT)); t = s.exists() ? s.data() : null; }
+    catch (e) { err = String(e && e.message || e); }
+    try { const s = await getDoc(doc(db, cam)); r = s.exists() ? s.data() : null; } catch (e) {}
+    const qt = nOvr(t), qr = nOvr(r);
+    let corpo;
+    if (err) corpo = '<b style="color:var(--nc)">erro ao ler: ' + esc(err) + "</b>";
+    else if (!t) corpo = '<b style="color:var(--nc)">o documento de teste n\u00e3o existe \u2014 a grava\u00e7\u00e3o n\u00e3o chegou ao servidor</b>';
+    else {
+      corpo = "chaves gravadas: <b>" + esc(Object.keys(t).join(", ")) + "</b>";
+      if (qt !== null) {
+        corpo += "<br>posi\u00e7\u00f5es dentro de <code>overrides</code>: <b>" + qt + "</b>"
+          + (qr !== null ? ' <small style="color:var(--cinza)">(o documento real tem ' + qr + ")</small>" : "")
+          + ' <small style="color:var(--cinza)">(acumulado dos testes desta sess\u00e3o \u2014 o veredito est\u00e1 na lista acima)</small>';
+      }
+      corpo += '<br><small style="color:var(--cinza);word-break:break-all">'
+        + esc(JSON.stringify(t).slice(0, 700)) + "</small>";
+    }
+    blocos.push('<div class="venc"><span><b>' + esc(cam) + "</b><br>"
+      + '<small style="color:var(--cinza)">gravado em ' + esc(camT) + "</small><br>" + corpo + "</span></div>");
+  }
+  _dlgAbre("<h3>Confer\u00eancia de grava\u00e7\u00f5es</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">O app gravou nas c\u00f3pias <code>teste_*</code>. '
+    + "As telas continuam lendo os dados reais, ent\u00e3o elas <b>n\u00e3o</b> mudam \u2014 a prova do que subiu est\u00e1 aqui.</p>"
+    + '<div class="venc"><span><b>Grava\u00e7\u00f5es tentadas</b></span><span><b>' + feitas.length + "</b></span></div>"
+    + feitas.map(e => {
+        let extra = "";
+        if (e.posicoes !== null && e.posicoes !== undefined) {
+          const grande = e.posicoes > 5;
+          extra = '<br><small>mandou <b>' + e.posicoes + '</b> posi\u00e7\u00e3o(\u00f5es) nesta grava\u00e7\u00e3o '
+            + (grande ? '<b style="color:var(--nc)">\u26a0 mapa inteiro</b>' : '<b style="color:var(--ok)">\u2713</b>') + "</small>";
+        }
+        return '<div class="venc"><span>' + esc(e.op) + " \u2192 " + esc(e.path) + extra + "</span></div>";
+      }).join("")
+    + '<h3 style="margin-top:14px">Conte\u00fado gravado</h3>' + blocos.join(""));
+};
+
+if (MODO_TESTE) {
+  addEventListener("DOMContentLoaded", () => {
+    const barra = document.createElement("div");
+    barra.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#7A1F1F;color:#fff;"
+      + "font:600 12px/1.5 system-ui,sans-serif;padding:7px 10px;display:flex;gap:8px;justify-content:center;"
+      + "align-items:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.25)";
+    const t = document.createElement("span");
+    t.textContent = "AMBIENTE DE TESTE \u2014 grava em c\u00f3pias teste_*";
+    barra.appendChild(t);
+    [["Auditar fotos", "auditarFotos"], ["Cilindros repetidos", "relatorioDuplicados"], ["Vagas de reserva", "relatorioReserva"], ["Rastrear cilindro", "rastrearCilindro"], ["Hist. da reserva", "historicoReserva"], ["Conferir grava\u00e7\u00f5es", "conferirGravacoes"]]
+      .forEach(([rot, fn]) => {
+        const b = document.createElement("button");
+        b.textContent = rot;
+        b.style.cssText = "background:#fff;color:#7A1F1F;border:0;border-radius:5px;padding:4px 10px;font:600 11.5px system-ui,sans-serif;cursor:pointer";
+        b.onclick = () => window[fn]();
+        barra.appendChild(b);
+      });
+    document.body.appendChild(barra);
+    document.body.style.paddingBottom = "42px";
+  });
+}
+
+/* --- Diagnostico 4: rastrear um cilindro em todas as camadas de dados --- */
+window.rastrearCilindro = () => {
+  _dlgAbre('<h3>Rastrear cilindro</h3><p style="font-size:13px;color:var(--cinza)">Mostra em que camada do cadastro o n\u00famero aparece.</p>'
+    + '<input id="rcNum" placeholder="N\u00famero do cilindro" style="width:100%;padding:10px;margin:8px 0">'
+    + '<button class="btn" onclick="window.rastrearAgora()">Rastrear</button><div id="rcOut"></div>');
+};
+window.rastrearAgora = () => {
+  const alvo = String(($("rcNum") && $("rcNum").value) || "").trim();
+  if (!alvo) return;
+  const igual = v => String(v == null ? "" : v).trim() === alvo;
+  const camadas = [];
+  ((typeof CAD0 !== "undefined" && CAD0.ext) || []).forEach(e => { if (igual(e.num)) camadas.push(["cadastro base", e.seq]); });
+  ((typeof CADX !== "undefined" && CADX.extAdd) || []).forEach(e => { if (igual(e.num)) camadas.push(["vaga criada (extAdd)", e.seq]); });
+  Object.entries((typeof CADX !== "undefined" && CADX.extEdit) || {}).forEach(([sq, v]) => { if (igual(v.num)) camadas.push(["edicao (extEdit)", sq]); });
+  Object.entries((typeof OVR !== "undefined" && OVR) || {}).forEach(([sq, v]) => { if (igual(v.num)) camadas.push(["override (OVR)", sq]); });
+  const efetivo = (CAD.ext || []).filter(e => igual(e.num))
+    .map(e => (isReserva(e) ? "Reserva " : "Ext ") + e.seq + (e.loc ? " \u2014 " + e.loc : ""));
+  const movs = ((typeof MOVS !== "undefined" && MOVS) || []).filter(m => igual(m.saiu) || igual(m.entrou))
+    .map(m => (m.data || "") + " \u00b7 posi\u00e7\u00e3o " + (m.posicao ?? "?") + " \u00b7 saiu " + (m.saiu ?? "\u2014") + " \u2192 entrou " + (m.entrou ?? "\u2014") + (m.verificacao ? " [verifica\u00e7\u00e3o]" : " [troca]"));
+  $("rcOut").innerHTML = "<h4 style=\"margin:14px 0 4px\">Onde aparece hoje</h4>"
+    + (efetivo.length ? efetivo.map(t => '<div class="venc"><span>' + esc(t) + "</span></div>").join("") : "<p>Em nenhuma posi\u00e7\u00e3o.</p>")
+    + "<h4 style=\"margin:14px 0 4px\">Camadas que declaram esse n\u00famero</h4>"
+    + (camadas.length ? camadas.map(([c, sq]) => '<div class="venc"><span>' + esc(c) + '</span><span>seq ' + esc(String(sq)) + "</span></div>").join("") : "<p>Nenhuma.</p>")
+    + "<h4 style=\"margin:14px 0 4px\">Movimenta\u00e7\u00f5es</h4>"
+    + (movs.length ? movs.map(t => '<div class="venc"><span style="font-size:12.5px">' + esc(t) + "</span></div>").join("") : "<p>Nenhuma.</p>");
+};
+
+/* --- Diagnostico 5: quanto historico esta preso a vagas de reserva (seq > 220) --- */
+window.historicoReserva = () => {
+  const LIMITE_FIXO = 220;
+  const daReserva = n => { const v = +n; return !isNaN(v) && v > LIMITE_FIXO; };
+  const insp = ((typeof ITENS !== "undefined" && ITENS) || []).filter(i => daReserva(i.eqSeq));
+  const movs = ((typeof MOVS !== "undefined" && MOVS) || []).filter(m => daReserva(m.posicao));
+  const cond = ((typeof CONDS !== "undefined" && CONDS) || []).filter(c => daReserva(c.seqOrigem));
+  const seqs = [...new Set([...insp.map(i => +i.eqSeq), ...movs.map(m => +m.posicao), ...cond.map(c => +c.seqOrigem)])].sort((a, b) => a - b);
+  _dlgAbre("<h3>Hist\u00f3rico preso \u00e0s vagas de reserva</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Registros que apontam para posi\u00e7\u00f5es acima de ' + LIMITE_FIXO
+    + '. Se uma vaga com hist\u00f3rico for renumerada, esses registros passam a apontar para o cilindro errado.</p>'
+    + '<div class="venc"><span>Inspe\u00e7\u00f5es (das ' + ((typeof ITENS !== "undefined" && ITENS) || []).length + " carregadas)</span><span><b>" + insp.length + "</b></span></div>"
+    + '<div class="venc"><span>Movimenta\u00e7\u00f5es</span><span><b>' + movs.length + "</b></span></div>"
+    + '<div class="venc"><span>Condena\u00e7\u00f5es</span><span><b>' + cond.length + "</b></span></div>"
+    + '<div class="venc"><span><b>Vagas com hist\u00f3rico</b></span><span><b>' + seqs.length + "</b></span></div>"
+    + (seqs.length ? '<p style="margin-top:10px;font-size:13px"><b>Vagas:</b> ' + seqs.join(", ") + "</p>" : ""));
+};
+/* ==================== FIM DO BLOCO DE TESTE ==================== */
 
 /* ================= CONFIGURAÇÃO FIREBASE (PROJETO NOVO) =================
    Crie um projeto em console.firebase.google.com e cole o config aqui */
@@ -538,10 +767,21 @@ const toast=m=>{const t=$("toast");t.textContent=m;t.style.display="block";setTi
    para o chao de fabrica. O que faltava: se o banco RECUSAR depois desse prazo,
    a rejeicao caia no vazio e o registro se perdia anunciando sucesso. Agora ela
    e sempre tratada e avisada na tela. */
+/* Mede quanto CADA gravacao levou de fato, inclusive as que passaram do prazo.
+   Serve para escolher o prazo com dado da operacao real em vez de palpite.
+   Fica so no aparelho (nao gera gravacao no banco) e guarda as ultimas 500. */
+const _TEMPOS_KEY="temposGravacao";
+const _regTempo=(ms,ok)=>{try{
+  const a=JSON.parse(localStorage.getItem(_TEMPOS_KEY)||"[]");
+  a.push({ms:Math.round(ms),ok:ok?1:0,em:Date.now()});
+  while(a.length>500)a.shift();
+  localStorage.setItem(_TEMPOS_KEY,JSON.stringify(a));}catch(e){}};
 const comTimeout=(p,ms=2500)=>{
+  const _t0=Date.now();
   let estourou=false;
   const prazo=new Promise(res=>setTimeout(()=>{estourou=true;res(false);},ms));
-  const orig=p.then(()=>true,err=>{
+  const orig=p.then(()=>{_regTempo(Date.now()-_t0,true);return true;},err=>{
+    _regTempo(Date.now()-_t0,false);
     if(!estourou)throw err;               /* dentro do prazo: quem chamou trata */
     console.error("[gravacao recusada apos o prazo]",err);
     toast("\u26a0\ufe0f N\u00c3O foi salvo: "+(err.code||err.message)+". Refa\u00e7a o lan\u00e7amento.");
@@ -762,6 +1002,17 @@ function mostraPadrao(){
       Fabricação: <b>${fmtBR(EQ.fab)}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
       Próx. Man. 2º Nível: <b>${fmtBR(EQ.man2)}</b> · 3º Nível: <b>${fmtBR(EQ.man3)}</b>
+      ${(()=>{ /* O inspetor confere o numero e, batendo, segue direto para a inspecao — entao
+                    ele nunca veria que o mesmo numero consta em outra posicao. O app precisa dizer. */
+        if(!EQ.num)return "";
+        const outras=(CAD.ext||[]).filter(e=>String(e.seq)!==String(EQ.seq)&&String(e.num??"").trim()===String(EQ.num).trim());
+        if(!outras.length)return "";
+        const onde=outras.map(e=>`${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc&&!isReserva(e)?` — ${esc(String(e.loc))}`:""}`).join(", ");
+        return `<div style="border-left:4px solid var(--nc);background:#fdecea;border-radius:6px;padding:8px 10px;margin:10px 0;font-size:12.5px;line-height:1.55">
+          <b style="color:var(--nc)">⚠️ Este número também consta em ${onde}.</b><br>
+          Enquanto estiver assim, a inspeção de um ponto conta pelo outro e o que ninguém visitar não aparece como pendente.<br>
+          <b>Se o cilindro que está fisicamente aqui é o Nº ${esc(String(EQ.num))}</b>, toque abaixo e escolha esse mesmo número — o sistema confirma aqui e limpa a outra posição.
+          <br><button type="button" class="abtn" style="margin-top:8px" onclick="corrigirLocal()">🔎 Resolver a duplicidade</button></div>`;})()}
       ${!EQ.num&&!isReserva(EQ)&&!EQ.engex?`<br><b style="color:var(--warn)">⚠️ Local vazio — abra "Ações do equipamento" e use "Verificar nº do local".</b>`:""}
       ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro Engex ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
       ${isReserva(EQ)&&!cd?`<br><span class="badge" style="background:var(--cinza2);margin-top:8px">RESERVA</span>`:""}
@@ -786,9 +1037,11 @@ window.toggleEngex=async()=>{
   const seq=String(EQ.seq);
   OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?new Date().toISOString().slice(0,10):""};
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
+    /* grava SO esta posicao. Antes regravava o mapa inteiro a partir da memoria:
+       um aparelho com estado antigo (offline, por exemplo) apagava o trabalho dos outros. */
+    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
     audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num});
-    toast(ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
+    avisaGravacao(okEngex,ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
   }catch(e){toast("Erro ao salvar: "+e.message);}
 };
 
@@ -986,13 +1239,16 @@ async function carregarNome(u){
   if(!BLOQUEADO){try{setDoc(doc(db,"usuarios",u.uid),
     {email:u.email,ultimoAcesso:Date.now()},{merge:true});}catch(e){}}
   if(!NOME&&!BLOQUEADO){NOME=(prompt("Digite seu nome (aparecerá como responsável pela inspeção):")||"").trim();
-    if(NOME){try{await comTimeout(setDoc(doc(db,"usuarios",u.uid),{nome:NOME,email:u.email},{merge:true}));}catch(e){}}}
+    if(NOME){try{await comTimeout(setDoc(doc(db,"usuarios",u.uid),{nome:NOME,email:u.email},{merge:true}));}
+      catch(e){console.error("[perfil no login]",e);}}}
   pintaUInfo();}
 window.mudarNome=async()=>{
   const n=(prompt("Novo nome:",NOME)||"").trim();if(!n)return;NOME=n;
-  try{await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{nome:NOME,email:auth.currentUser.email},{merge:true}));}catch(e){}
+  let okNm=false;
+  try{okNm=await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{nome:NOME,email:auth.currentUser.email},{merge:true}));}
+  catch(e){pintaUInfo();return toast("Erro ao salvar o nome: "+e.message);}
   pintaUInfo();
-  toast("✅ Nome atualizado!");};
+  avisaGravacao(okNm,"✅ Nome atualizado!");};
 /* ---------- Assinatura do inspetor (sai no relatório Excel) ---------- */
 window.assinatura=()=>{
   $("dlgBody").innerHTML=`<h3>✍️ Minha assinatura</h3>
@@ -1012,8 +1268,8 @@ window.assinatura=()=>{
   window.limpaAssin=()=>ctx.clearRect(0,0,cv.width,cv.height);
   window.salvaAssin=async()=>{
     ASSIN=cv.toDataURL("image/png");
-    try{await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{assin:ASSIN,nome:NOME,email:auth.currentUser.email},{merge:true}));
-      pintaUInfo();$("dlg").close();toast("✅ Assinatura salva!");}
+    try{const okAs=await comTimeout(setDoc(doc(db,"usuarios",auth.currentUser.uid),{assin:ASSIN,nome:NOME,email:auth.currentUser.email},{merge:true}));
+      pintaUInfo();$("dlg").close();avisaGravacao(okAs,"✅ Assinatura salva!");}
     catch(e){toast("Erro: "+e.message);}};};
 
 /* As fotos ficam FORA do documento da inspecao, na colecao "fotos". Dentro do
@@ -1032,7 +1288,7 @@ async function fotosDe(i){
     const d=await getDoc(doc(db,"fotos",i.id));
     const f=d.exists()?{foto1:d.data().foto1||"",foto2:d.data().foto2||""}:vazio;
     CACHE_FOTOS.set(i.id,f);return f;
-  }catch(e){console.error("[fotos "+i.id+"]",e);return vazio;}}
+  }catch(e){console.error("[fotos "+i.id+"]",e);return {foto1:"",foto2:"",erro:true};}}
 /* ---------- Visualizador de foto (tela cheia + download) ---------- */
 const FOTOS_ABERTAS={};
 window.verFoto=(chave,titulo,arquivo)=>{
@@ -1199,15 +1455,20 @@ window.salvar=async()=>{
         registro:$("hReg").value,outros:$("hOutros").value};}
     const ref=doc(collection(db,"inspecoes"));
     const ok=await comTimeout(setDoc(ref,base));
-    if(foto1||foto2)try{await comTimeout(setDoc(doc(db,"fotos",ref.id),{foto1,foto2,criadoEm:Date.now()}));}
-      catch(e){console.error("[fotos]",e);}
+    /* a foto vai para a colecao "fotos", separada do registro: se ela ficar para tras
+       o inspetor precisa saber, senao a inspecao conta como feita e sem evidencia. */
+    let okFoto=true;
+    if(foto1||foto2){try{okFoto=await comTimeout(setDoc(doc(db,"fotos",ref.id),{foto1,foto2,criadoEm:Date.now()}));}
+      catch(e){console.error("[fotos]",e);okFoto=false;}}
     ["fObs","fCargaLocal","fBusca"].forEach(i=>$(i).value="");
     $("fFoto1").value="";$("fFoto2").value="";$("fTipoLocal").value="";
     ["hQtdStorz","hTipoEsg","hQtdEsg","hQtdMang","hLances","hOutros"].forEach(i=>$(i).value="");
     CHK_EXT.forEach((c,i)=>{if($("ck"+i))$("ck"+i).value="C";});
     ["hStorz","hEsg","hMang","hReg"].forEach(i=>$(i).value="C");
     EQ=null;$("padraoBox").classList.add("hidden");ajustaCO2();
-    toast(ok?"✅ Inspeção registrada!":"📴 Salvo no aparelho — envia quando houver conexão.");
+    toast(ok&&okFoto?"✅ Inspeção registrada!"
+      :!ok?"📴 Salvo no aparelho — envia quando houver conexão."
+      :"⚠️ Inspeção registrada, mas a FOTO ainda não subiu. Confira o registro depois — pode ser preciso anexar de novo.");
   }catch(e){console.error(e);toast("Erro ao salvar: "+e.message);}
   $("btnSalvar").disabled=false;$("btnSalvar").textContent="Salvar inspeção";};
 
@@ -1359,8 +1620,14 @@ window.clEscolhe=seq=>{
     <select id="clOk"><option>Não</option><option>Sim</option></select></div>`:"";};
 window.confirmaCorrecaoLocal=async()=>{
   if(!podeGravar())return;
-  const Y=window._clSel;
-  if(!Y)return toast("Digite o nº e escolha o cilindro na lista.");
+  const _sel=window._clSel;
+  if(!_sel)return toast("Digite o nº e escolha o cilindro na lista.");
+  /* cada atualizacao em segundo plano reconstroi CAD.ext, entao a referencia guardada
+     ao escolher o cilindro pode ter envelhecido. Sem revalidar, o mesmo numero acaba
+     gravado em duas posicoes. A confirmaTroca ja fazia isso; esta nao fazia. */
+  const Y=CAD.ext.find(e=>String(e.seq)===String(_sel.seq));
+  if(!Y||String(Y.num??"")!==String(_sel.num??""))
+    return toast("A tela foi atualizada em segundo plano. Escolha o cilindro de novo.");
   if(!EQ){$("dlg").close();return;}
   if(String(Y.seq)===String(EQ.seq))return toast("Este já é o equipamento cadastrado neste local.");
   const ok=$("clOk");
@@ -1368,26 +1635,44 @@ window.confirmaCorrecaoLocal=async()=>{
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const dY={},vazio={},dX={};
   CAMPOS.forEach(c=>{dY[c]=Y[c]??null;vazio[c]=null;dX[c]=EQ[c]??null;});
+  /* MESMO NUMERO nos dois lados = o cilindro nao mudou de lugar; o que existe e' uma
+     copia do numero em outra posicao. A trava antiga so comparava a POSICAO, entao
+     este caso passava e o codigo tratava o cilindro daqui como "deslocado", parando
+     uma copia dele numa vaga de reserva livre — criando um duplicado novo a cada vez.
+     Foi assim que nasceram as reservas 222, 223, 224 e 225, em sequencia.
+     Agora o fluxo faz o contrario: confirma o numero aqui e ESVAZIA a outra posicao. */
+  const mesmoNumero=String(dX.num??"").trim()!==""&&String(dX.num??"").trim()===String(dY.num??"").trim();
+  /* a gravacao usa merge, que nao remove chave ausente: sem estes nulos a vaga
+     esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
+  ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
   {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
-  let novaReserva=false;
-  if(dX.num){                /* o que constava aqui vira reserva */
-    const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
-    if(slot)OVR[String(slot.seq)]=dX;
+  let novaReserva=false,seqSlot=null;
+  if(dX.num&&!mesmoNumero){  /* o que constava aqui vira reserva */
+    const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
+    if(slot){OVR[String(slot.seq)]=dX;seqSlot=slot.seq;}
     else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
   }
+  /* {merge:true} NAO basta: com o mapa OVR inteiro no corpo, as 357 posicoes sao
+     reescritas com o estado deste aparelho e o trabalho de quem mexeu no cadastro
+     enquanto ele estava sem sinal e' desfeito. So sobem as posicoes realmente tocadas. */
+  const _patch={};
+  [EQ.seq,ySeq].concat(seqSlot!=null?[seqSlot]:[]).forEach(sq=>{_patch[String(sq)]=OVR[String(sq)];});
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
-    if(novaReserva)await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
-    await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
-      posicao:EQ.seq,loc:EQ.loc||"",saiu:dX.num??"—",entrou:dY.num,verificacao:true,
+    const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
+    const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+      posicao:EQ.seq,loc:EQ.loc||"",saiu:mesmoNumero?"—":(dX.num??"—"),entrou:dY.num,verificacao:true,
+      duplicidade:mesmoNumero||null,limpouPosicao:mesmoNumero?ySeq:null,
       divergencia:!!ok,divergAceita:ok?ok.value:"",inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
     audit("verificacao_local",{local:EQ.seq,entrou:dY.num,saiu:dX.num,localEsvaziado:yEraReserva?null:ySeq});
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
-    toast(`✅ Local ${EQ.seq}: agora consta o Nº ${dY.num}.${dX.num?` Nº ${dX.num} virou reserva.`:""}${yEraReserva?"":` O local ${ySeq} ficou vazio até ser verificado.`}`);
+    avisaGravacao(okCad&&okCadx&&okMov, mesmoNumero
+      ? `✅ Duplicidade resolvida: o Nº ${dY.num} fica só no local ${EQ.seq}. ${yEraReserva?`A vaga de reserva ${ySeq}`:`O local ${ySeq}`} foi esvaziado.`
+      : `✅ Local ${EQ.seq}: agora consta o Nº ${dY.num}.${dX.num?` Nº ${dX.num} virou reserva.`:""}${yEraReserva?"":` O local ${ySeq} ficou vazio até ser verificado.`}`);
   }catch(e){toast("Erro na verificação: "+e.message);}};
 
 /* Busca por nº do cilindro dentro do diálogo de troca */
@@ -1445,17 +1730,22 @@ window.confirmaTroca=async()=>{
      Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
   OVR[String(r.seq)]=eraReserva
     ?{...doEQ,manut:true,manutDesde:new Date().toISOString().slice(0,10),manutDe:EQ.seq,manutLoc:EQ.loc||""}
-    :doEQ;
+    /* troca entre dois pontos fixos: ninguem foi para recarga. Sem estes nulos o merge
+       manteria uma marcacao de manutencao antiga que ficou no servidor. */
+    :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null};
+  /* mesma armadilha da verificacao de local: o mapa inteiro no corpo desfaz o que
+     outro inspetor gravou. A troca mexe em duas posicoes, entao sobem duas. */
+  const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR},{merge:true}));
-    await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
-    toast(eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} foi para manutenção/recarga.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
+    avisaGravacao(okCad&&okMov,eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} foi para manutenção/recarga.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
   }catch(e){toast("Erro na substituição: "+e.message);}};
 
 /* ---------- Retorno da recarga ----------
@@ -1493,15 +1783,17 @@ window.confirmaRetornoRecarga=async()=>{
   const m2=$("rcM2").value||null,m3=$("rcM3").value||null;
   const anterior={...(OVR[seq]||{})};
   const novo={...anterior};
-  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{delete novo[k];});
+  /* nulos em vez de delete: assim a limpeza funciona tambem numa gravacao com merge,
+     que e o que permite gravar so esta posicao em vez do mapa inteiro */
+  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{novo[k]=null;});
   novo.man2=m2;novo.man3=m3;
   OVR[seq]=novo;
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
+    const okRet=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:novo}},{merge:true}));
     audit("retorno_recarga",{seq,num,retorno:dt,man2:m2,man3:m3});
     aplicaOvr();
     $("dlg").close();
-    toast(`✅ Nº ${num} voltou da recarga — disponível como reserva.`);
+    avisaGravacao(okRet,`✅ Nº ${num} voltou da recarga — disponível como reserva.`);
   }catch(e){
     OVR[seq]=anterior;                       /* devolve o estado anterior se a gravação falhar */
     toast("Erro ao registrar o retorno: "+e.message);}};
@@ -1556,11 +1848,20 @@ function linhasEquip(){
       m2:tipo==="ext"?(e.man2||""):(e.man||""),
       m3:tipo==="ext"?(e.man3||""):(e.th||""),
     };});
-  return linhas.filter(l=>{
+  const filtradas=linhas.filter(l=>{
     if(sit&&l.sit.k!==sit)return false;
     if(!q)return true;
     return `${l.num} ${l.id} ${l.agente} ${l.carga} ${l.fabricante} ${l.loc}`.toLowerCase().includes(q);
-  }).sort((a,b)=>(+a.id||0)-(+b.id||0)||String(a.id).localeCompare(String(b.id)));}
+  });
+  const ord=($("eqOrd")&&$("eqOrd").value)||"loc";
+  const porId=(a,b)=>(+a.id||0)-(+b.id||0)||String(a.id).localeCompare(String(b.id));
+  const cmp={
+    "loc":porId,
+    "loc-desc":(a,b)=>porId(b,a),
+    "num":(a,b)=>String(a.num||"").localeCompare(String(b.num||""),"pt",{numeric:true})||porId(a,b),
+    "sit":(a,b)=>String((a.sit&&a.sit.txt)||"").localeCompare(String((b.sit&&b.sit.txt)||""))||porId(a,b)
+  }[ord]||porId;
+  return filtradas.sort(cmp);}
 window.renderEquip=()=>{
   const cx=$("eqLista");if(!cx)return;
   const tipo=($("eqTipo")&&$("eqTipo").value)||"ext";
@@ -1696,6 +1997,24 @@ window.render=()=>{
     if(!lista.length)return `<p style="font-size:12.5px;color:var(--ok);margin:6px 0 2px">✅ Todos os ${rotulo} inspecionados!</p>`;
     const areas={};lista.forEach(p=>{const a=normRota(p.loc);(areas[a]=areas[a]||[]).push(p);});
     return Object.keys(areas).sort().map(a=>`<details style="margin:6px 0"><summary style="font-weight:700;font-size:13px;cursor:pointer">${esc(a)} (${areas[a].length})</summary>${areas[a].map(p=>`<div class="venc" style="cursor:pointer" onclick="irPara('${p.t}','${String(p.id).replace(/'/g,"")}')"><span>${p.lb}<br><small style="color:var(--cinza)">${esc(p.loc)}</small></span><span>➡️</span></div>`).join("")}</details>`).join("");};
+  /* Pool de reserva sem inspecao no mes.
+     Os cilindros de reserva entram na rota igual aos instalados, mas ficavam
+     diluidos na lista de pendencias por area — em 08/2026 as 25 pendencias do mes
+     eram TODAS de reserva e ninguem percebeu. Aqui viram cartao proprio. */
+  const rb=$("resBox");
+  if(rb){
+    const resRota=extRota.filter(e=>isReserva(e));
+    const resPend=resRota.filter(e=>!inspEq.has("ext_"+e.seq));
+    rb.classList.toggle("hidden",!resPend.length);
+    if(resPend.length){
+      const todas=resPend.length===resRota.length;
+      rb.innerHTML=`<b>🧯 Pool de reserva sem inspeção neste mês (${resPend.length} de ${resRota.length})</b>`
+        +(todas?`<p style="font-size:13px;color:var(--nc);font-weight:700;margin:6px 0 4px">Nenhum cilindro do pool foi inspecionado neste mês.</p>`:"")
+        +`<p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">Os cilindros de reserva entram na rota como qualquer outro — são eles que assumem o lugar quando um extintor vai para recarga. Quem não é inspecionado aqui vira um ponto cego.</p>`
+        +resPend.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 <b>Nº ${esc(String(e.num??"—"))}</b>`
+          +`<br><small style="color:var(--cinza)">Reserva ${esc(String(e.seq))}${e.tipo||e.agp?` · ${esc(String(e.tipo||e.agp))}`:""}${e.carga??e.cgp?` ${esc(String(e.carga??e.cgp))}`:""}</small>`
+          +`</span><span class="badge b-cond">sem inspeção</span></div>`).join("");}}
+
   /* posições que ficaram sem cilindro por causa de uma condenação */
   const pb=$("posBox");
   if(pb){
@@ -1721,6 +2040,31 @@ window.render=()=>{
       +emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
         <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · desde ${fmtBR(e.manutDesde)}</small></span>
         <span class="badge b-manut">manutenção</span></div>`).join("");}
+  /* Mesmo numero de cilindro em duas posicoes: a "ultima inspecao" e buscada pelo
+     numero, entao a inspecao de uma posicao conta pela outra — e a posicao que
+     ninguem inspecionou nunca aparece como pendente. E falha de cobertura. */
+  const db_=$("dupBox");
+  if(db_){
+    const porNum={};
+    (CAD.ext||[]).forEach(e=>{if(e.num==null||e.num==="")return;
+      const k=String(e.num).trim();(porNum[k]=porNum[k]||[]).push(e);});
+    const dups=Object.entries(porNum).filter(([,v])=>v.length>1)
+      .sort((a,b)=>String(a[0]).localeCompare(String(b[0]),"pt",{numeric:true}));
+    db_.classList.toggle("hidden",!dups.length);
+    /* A inspecao e' buscada pelo NUMERO do cilindro, entao com o numero repetido a
+       inspecao de um ponto conta pelo outro. Aqui olhamos pela POSICAO (eqSeq), que
+       e' o unico jeito de ver qual das duas nunca recebeu ninguem. */
+    const ultNaPosicao=seq=>{let m="";(ITENS||[]).forEach(i=>{
+      if(i.tipo!=="ext"||String(i.eqSeq)!==String(seq))return;
+      const d=String(i.data||"");if(d>m)m=d;});return m;};
+    if(dups.length)db_.innerHTML=`<b>⚠️ Cilindros em mais de uma posição (${dups.length})</b>
+      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">O mesmo número consta em duas posições. Como a última inspeção é buscada pelo número, a inspeção de uma conta pela outra — e a posição que ninguém inspecionou não aparece como pendente. Confira no campo qual está certa e corrija o cadastro.</p>`
+      +dups.map(([num,lista])=>`<div class="venc"><span>🧯 <b>Nº ${esc(num)}</b><br>`
+        +lista.map(e=>{const u=ultNaPosicao(e.seq);
+        return `<small style="color:var(--cinza)">${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc?` · ${esc(String(e.loc))}`:""}`
+          +`<br>${u?`Última inspeção nesta posição: <b>${fmtBR(u)}</b>`
+                 :`<b style="color:var(--nc)">Nunca inspecionada nesta posição — confira no local</b>`}</small>`;}).join("<br>")
+        +`</span><span class="badge b-cond">repetido</span></div>`).join("");}
   /* pontos que hoje estão com um cilindro emprestado da Engex, no lugar do original em manutenção */
   const eb=$("engexBox");
   if(eb){
@@ -1809,11 +2153,15 @@ window.renderVenc=()=>{
     if(fG==="inst"&&res)return;
     if(fG==="res"&&!res)return;
     if(fA&&rotuloAg(e)!==fA)return;
-    [["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([rot,dt])=>{
+    const niveis=[];
+    [["2\u00ba N\u00edvel",e.man2],["3\u00ba N\u00edvel",e.man3]].forEach(([rot,dt])=>{
       const dd=diasAte(dt);if(!passa(dd,dt))return;
-      /* o que está na Engex continua na lista de propósito — se a recarga demorar,
-         ninguém pode perder o vencimento de vista — mas vai marcado para não soar como esquecido */
-      linhas.push({d:dd,r:res,h:`<div class="venc"><span>${rotuloExt(e)} · <b>${rotuloAg(e)}</b> · Man. ${rot} ${fmtBR(dt)}${emManutencao(e)?` <span class="badge b-manut">🔧 na Engex desde ${fmtBR(e.manutDesde)}</span>`:""}<br><small style="color:var(--cinza)">${subExt(e)}</small></span>${badgeVenc(dd)}</div>`});});});
+      niveis.push({rot,dt,dd});});
+    if(!niveis.length)return;
+    /* Um cartao por EQUIPAMENTO, com os niveis dentro. Antes era uma linha por
+       nivel: o mesmo extintor aparecia duas vezes e o contador somava linhas. */
+    const pior=Math.min(...niveis.map(n=>n.dd));
+    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${rotuloExt(e)} \u00b7 <b>${rotuloAg(e)}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na Engex desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${subExt(e)}</small></span></div>`});});
   linhas.sort((a,b)=>a.d-b.d);
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
@@ -1964,6 +2312,7 @@ window.exportCondenados=async()=>{
   toast(`⬇️ ${arr.length} cilindro(s) exportado(s).`);};
 
 /* ---------- Detalhe ---------- */
+window.tentarFotoDeNovo=id=>{CACHE_FOTOS.delete(id);abrir(id);};
 window.abrir=async id=>{
   const i=ITENS.find(x=>x.id===id);if(!i)return;
   const cab=i.tipo==="ext"?`Extintor Nº ${i.eqNum??i.eqSeq}`:`Hidrante ${i.eqPat}`;
@@ -1983,6 +2332,11 @@ window.abrir=async id=>{
     <p style="font-size:12px;color:var(--cinza)">${fmtBR(i.data)} · ${i.inspetor||""}</p>
     ${detalhe}
     ${i.obs?`<p style="font-size:14px;margin-top:8px"><b>Obs:</b> ${i.obs}</p>`:""}
+    ${F.erro?`<div style="background:#FEF3E2;border:1px solid #F0C088;border-radius:10px;padding:12px;margin:10px 0">
+      <b style="color:#92400e">\uD83D\uDCF7 N\u00e3o foi poss\u00edvel carregar a foto</b>
+      <p style="font-size:12.5px;color:#92400e;margin:6px 0 0">A foto est\u00e1 salva no sistema \u2014 s\u00f3 n\u00e3o veio agora, por falta de sinal. Tente num lugar com conex\u00e3o melhor.</p>
+      <button class="btn sec" style="margin-top:10px" onclick="tentarFotoDeNovo('${id}')">\uD83D\uDD04 Tentar de novo</button>
+    </div>`:""}
     ${(F.foto1||F.foto2)?`<div class="fotosDet">
       ${F.foto1?`<img class="fdet" src="${F.foto1}" ${fotoClick(F.foto1,tituloFoto(i,1),nomeArqFoto(i,1))} alt="Foto 01 da inspeção">`:""}
       ${F.foto2?`<img class="fdet" src="${F.foto2}" ${fotoClick(F.foto2,tituloFoto(i,2),nomeArqFoto(i,2))} alt="Foto 02 da inspeção">`:""}
@@ -2009,8 +2363,10 @@ window.editarInspecao=async id=>{
       <div class="chk"><span>Visual mangueiras</span><select id="ehMang">${opt(h.mangueiras)}</select></div>
       <div class="chk"><span>Registro do hidrante</span><select id="ehReg">${opt(h.registro)}</select></div>`;
   }
-  const fotoEd=(n,src)=>`<div><label>Foto 0${n}</label>
-      ${src?`<img src="${src}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;display:block;margin-bottom:5px">`:`<p style="font-size:12px;color:var(--cinza2);margin-bottom:5px">Sem foto.</p>`}
+  const fotoEd=(n,src,erro)=>`<div><label>Foto 0${n}</label>
+      ${src?`<img src="${src}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;display:block;margin-bottom:5px">`
+        :erro?`<p style="font-size:12px;color:#92400e;margin-bottom:5px"><b>N\u00e3o carregou.</b><br>A foto existe, mas n\u00e3o veio \u2014 sinal fraco.</p>`
+        :`<p style="font-size:12px;color:var(--cinza2);margin-bottom:5px">Sem foto.</p>`}
       <input id="eF${n}" type="file" accept="image/*" capture="environment">
       ${src?`<label style="display:flex;align-items:center;gap:6px;text-transform:none;font-size:12px;margin-top:6px"><input type="checkbox" id="eDel${n}" style="width:auto"> Remover esta foto</label>`:""}</div>`;
   /* dados do equipamento: só extintor tem agente/carga informados no local */
@@ -2039,7 +2395,7 @@ window.editarInspecao=async id=>{
     <label>Data da inspeção</label>
     <input id="eData" type="date" value="${esc(String(i.data||"").slice(0,10))}">
     <label style="margin-top:14px">📷 Fotos (envie um arquivo para substituir)</label>
-    <div class="row">${fotoEd(1,FE.foto1)}${fotoEd(2,FE.foto2)}</div>
+    <div class="row">${fotoEd(1,FE.foto1,FE.erro)}${fotoEd(2,FE.foto2,FE.erro)}</div>
     <button class="btn" onclick="salvaEdicaoInspecao('${id}')">💾 Salvar correção</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   if(i.tipo==="ext"){
@@ -2103,20 +2459,28 @@ window.salvaEdicaoInspecao=async id=>{
         fAtu["foto"+n]=await comprimir(f.files[0],1000,.6,carimboEd);mexeuFoto=true;}
       else if(del&&del.checked){fAtu["foto"+n]="";mexeuFoto=true;}
     }
+    if((mexeuFoto||i.foto1||i.foto2)&&fAtu.erro){
+      return toast("\u26a0\uFE0F N\u00e3o consegui carregar as fotos atuais. Salvar agora apagaria as que est\u00e3o no sistema. Tente de novo com sinal melhor.");}
     if(mexeuFoto||i.foto1||i.foto2){
-      await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
+      const gravouFoto=await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
+      /* so limpa a foto do documento depois de confirmar que a copia foi gravada.
+         Antes limpava sempre: se a copia falhasse, a foto sumia dos dois lugares. */
+      if(!gravouFoto)return toast("\u26a0\uFE0F A foto n\u00e3o p\u00f4de ser gravada agora. Nada foi alterado \u2014 tente com sinal melhor.");
       patch.foto1="";patch.foto2="";patch.temFoto=!!(fAtu.foto1||fAtu.foto2);
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
-    await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
+    const okEd=await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
     audit("editar_inspecao",{id,tipo:i.tipo});
-    $("dlg").close();toast("✅ Inspeção corrigida!");
+    $("dlg").close();avisaGravacao(okEd,"✅ Inspeção corrigida!");
   }catch(e){toast("Erro ao salvar: "+e.message);}};
 window.excluir=async id=>{
   if(!ISADMIN)return toast("Apenas o administrador pode excluir registros.");
   if(!podeGravar())return;
   if(!confirm("Excluir este registro definitivamente?"))return;
-  try{await comTimeout(deleteDoc(doc(db,"inspecoes",id)));$("dlg").close();toast("🗑️ Registro excluído.");audit("excluir_inspecao",{id});}
+  try{const okDel=await comTimeout(deleteDoc(doc(db,"inspecoes",id)));$("dlg").close();
+    avisaGravacao(okDel,"🗑️ Registro excluído.",
+      "📴 Exclusão registrada no aparelho — só sai do sistema quando houver conexão. Confira depois.");
+    audit("excluir_inspecao",{id});}
   catch(e){toast("Erro ao excluir: "+e.message);}};
 
 /* ---------- IA (Gemini) ---------- */
@@ -2247,12 +2611,12 @@ window.mudaPerfil=async(uid,perfil)=>{
   if(!podeGravar())return gerenciarUsuarios();
   const u=USERS.find(x=>x.uid===uid);
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil},{merge:true}));
+    const okP=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil},{merge:true}));
     if(u)u.perfil=perfil;
     audit("mudar_perfil",{email:u?.email||uid,perfil});
     if(auth.currentUser&&auth.currentUser.uid===uid){PERFIL=perfil;recalcAdmin();}
     pintaUsuarios();
-    toast(`✅ ${u?.nome||"Usuário"} agora é ${PERFIS[perfil]}.`);
+    avisaGravacao(okP,`✅ ${u?.nome||"Usuário"} agora é ${PERFIS[perfil]}.`);
   }catch(e){toast("Erro: "+e.message);gerenciarUsuarios();}};
 
 window.renomearUsuario=async uid=>{
@@ -2262,12 +2626,12 @@ window.renomearUsuario=async uid=>{
   if(!novo||novo===u.nome)return;
   const antigo=String(u.nome||"").trim();
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),{nome:novo},{merge:true}));
+    const okN=await comTimeout(setDoc(doc(db,"usuarios",uid),{nome:novo},{merge:true}));
     u.nome=novo;audit("renomear_usuario",{email:u.email||uid,de:antigo,para:novo});
     if(auth.currentUser&&auth.currentUser.uid===uid){NOME=novo;pintaUInfo();}
     pintaUsuarios();
     const qtd=antigo?ITENS.filter(i=>String(i.inspetor||"").trim()===antigo).length:0;
-    toast(qtd?`✅ Nome atualizado. As ${qtd} inspeções antigas seguem com "${antigo}".`
+    avisaGravacao(okN,qtd?`✅ Nome atualizado. As ${qtd} inspeções antigas seguem com "${antigo}".`
              :"✅ Nome atualizado.");
   }catch(e){toast("Erro: "+e.message);}};
 
@@ -2290,16 +2654,17 @@ window.alternaAdmin=async uid=>{
   if(eraAdm&&auth.currentUser&&auth.currentUser.uid===uid)
     return toast("Você não pode tirar o seu próprio acesso de administrador.");
   try{
+    let okA=true;
     if(eraAdm){
       ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==em);
-      if(u.perfil==="admin"){await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"inspetor"},{merge:true}));u.perfil="inspetor";}
+      if(u.perfil==="admin"){okA=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"inspetor"},{merge:true}));u.perfil="inspetor";}
     }else{
       if(em&&!ADMINS.map(x=>String(x).toLowerCase()).includes(em))ADMINS.push(em);
-      await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"admin"},{merge:true}));u.perfil="admin";}
-    await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
+      okA=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"admin"},{merge:true}));u.perfil="admin";}
+    const okL=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
     audit(eraAdm?"remover_admin":"novo_admin",{email:em});
     pintaUsuarios();
-    toast(eraAdm?`☆ ${u.nome||em} não é mais administrador.`:`⭐ ${u.nome||em} agora é administrador.`);
+    avisaGravacao(okA&&okL,eraAdm?`☆ ${u.nome||em} não é mais administrador.`:`⭐ ${u.nome||em} agora é administrador.`);
   }catch(e){toast("Erro: "+e.message);}};
 
 window.encerrarAcesso=async uid=>{
@@ -2321,27 +2686,32 @@ window.encerrarAcesso=async uid=>{
     rotulo:"🚫 Encerrar o acesso",voltar:"Manter o acesso"});
   if(!ok)return;
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),
+    const okEnc=await comTimeout(setDoc(doc(db,"usuarios",uid),
       {perfil:"bloqueado",encerradoPor:NOME||auth.currentUser.email,encerradoEm:Date.now()},{merge:true}));
     u.perfil="bloqueado";
+    /* tirar da lista de admins faz parte de revogar o acesso: se so o perfil subir,
+       a pessoa continua administradora pela lista. Por isso entra no mesmo aviso. */
+    let okAdmL=true;
     if(em&&ADMINS.map(x=>String(x).toLowerCase()).includes(em)){
       ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==em);
-      try{await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));}catch(e){}}
+      try{okAdmL=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));}
+      catch(e){console.error("[admins]",e);okAdmL=false;}}
     audit("encerrar_acesso",{email:em,nome:u.nome||""});
     fechaDlg();setTimeout(gerenciarUsuarios,120);
-    toast(`🚫 Acesso de ${u.nome||em} encerrado.`);
+    avisaGravacao(okEnc&&okAdmL,`🚫 Acesso de ${u.nome||em} encerrado.`,
+      `⚠️ O encerramento do acesso de ${u.nome||em} ainda NÃO foi confirmado no sistema. Confira a lista de usuários antes de considerar revogado.`);
   }catch(e){toast("Erro: "+e.message);}};
 
 window.reativarUsuario=async uid=>{
   if(!ISADMIN||!podeGravar())return;
   const u=USERS.find(x=>x.uid===uid);if(!u)return;
   try{
-    await comTimeout(setDoc(doc(db,"usuarios",uid),
+    const okReat=await comTimeout(setDoc(doc(db,"usuarios",uid),
       {perfil:"inspetor",reativadoPor:NOME||auth.currentUser.email,reativadoEm:Date.now()},{merge:true}));
     u.perfil="inspetor";
     audit("reativar_acesso",{email:u.email||uid});
     pintaUsuarios();
-    toast(`↩️ ${u.nome||u.email} voltou como Inspetor. Ajuste o perfil se precisar.`);
+    avisaGravacao(okReat,`↩️ ${u.nome||u.email} voltou como Inspetor. Ajuste o perfil se precisar.`);
   }catch(e){toast("Erro: "+e.message);}};
 
 /* mantido para quem clicar no botão antigo — abre a mesma tela */
@@ -2361,22 +2731,69 @@ window.addAdmin=async()=>{
   const e=$("aEmail").value.trim().toLowerCase();
   if(!e||!e.includes("@"))return toast("Informe um e-mail válido.");
   if(!ADMINS.map(x=>String(x).toLowerCase()).includes(e))ADMINS.push(e);
-  try{await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));audit("novo_admin",{email:e});gerenciarUsuarios();toast("✅ Admin adicionado!");}
+  try{const okAd=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
+    audit("novo_admin",{email:e});gerenciarUsuarios();avisaGravacao(okAd,"✅ Admin adicionado!");}
   catch(err){toast("Erro: "+err.message);}};
 window.remAdmin=async e=>{
   if(!podeGravar())return;
   if(!confirm("Remover "+e+" dos administradores?"))return;
   ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==String(e).toLowerCase());
-  try{await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));audit("remover_admin",{email:e});gerenciarUsuarios();toast("Removido.");}
+  try{const okRm=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
+    audit("remover_admin",{email:e});gerenciarUsuarios();avisaGravacao(okRm,"Removido.");}
   catch(err){toast("Erro: "+err.message);}};
 
 /* ---------- Auditoria ---------- */
-function audit(acao,det){try{addDoc(collection(db,"auditoria"),{acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()});}catch(e){}}
+/* O try/catch antigo so pegava erro SINCRONO. Como addDoc devolve promessa, toda falha
+   de gravacao da trilha (regra, rede, cota) era descartada sem deixar rastro nenhum.
+   Agora fica no console e num contador que o admin ve na tela de auditoria. */
+window._AUDIT_FALHAS=[];
+function audit(acao,det){
+  try{
+    const pr=addDoc(collection(db,"auditoria"),{acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()});
+    if(pr&&pr.catch)pr.catch(e=>{
+      console.error("[auditoria] nao gravou:",acao,e);
+      window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.code||e&&e.message||e)});});
+  }catch(e){console.error("[auditoria] falha sincrona:",acao,e);
+    window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.message||e)});}}
+/* Quanto as gravacoes deste aparelho levam de verdade. Sem isso, o prazo de 2,5s
+   e' chute — e um aviso que aparece a toa deixa de ser lido. */
+window.temposGravacao=()=>{
+  let a=[];try{a=JSON.parse(localStorage.getItem(_TEMPOS_KEY)||"[]");}catch(e){}
+  const okAs=a.filter(x=>x.ok).map(x=>x.ms).sort((x,y)=>x-y);
+  if(okAs.length<5)return _dlgAbre("<h3>📶 Tempos de gravação</h3>"
+    + "<p>Ainda não há medições suficientes neste aparelho (" + okAs.length + " de 5 mínimas).</p>"
+    + '<p style="font-size:13px;color:var(--cinza)">Use o app normalmente por alguns dias e volte aqui. A medição fica só neste aparelho e não gera nenhuma gravação no sistema.</p>');
+  const pct=q=>okAs[Math.min(okAs.length-1,Math.floor(okAs.length*q))];
+  const mediana=pct(.5),p90=pct(.9),p95=pct(.95),pior=okAs[okAs.length-1];
+  const acima=lim=>okAs.filter(x=>x>lim).length;
+  const pc=n=>Math.round(100*n/okAs.length)+"%";
+  const linha=(r,v)=>'<div class="venc"><span>'+r+"</span><span><b>"+v+"</b></span></div>";
+  /* recomendacao simples: prazo que cobre 90% das gravacoes boas, arredondado */
+  const sug=Math.max(2.5,Math.ceil((p90/1000)*2)/2);
+  _dlgAbre("<h3>📶 Tempos de gravação</h3>"
+    + '<p style="font-size:13px;color:var(--cinza)">Quanto o sistema levou para confirmar cada gravação <b>deste aparelho</b>. Só entram as que confirmaram — as que ainda estão na fila não contam.</p>'
+    + linha("Medições", okAs.length)
+    + linha("Metade confirma em até", (mediana/1000).toFixed(1)+" s")
+    + linha("9 em cada 10 em até", (p90/1000).toFixed(1)+" s")
+    + linha("Pior caso", (pior/1000).toFixed(1)+" s")
+    + '<div class="venc"><span>Passaram do prazo atual (2,5 s)<br><small style="color:var(--cinza)">cada uma dessas mostrou o aviso 📴 sem precisar</small></span><span><b>'
+      + pc(acima(2500)) + "</b></span></div>"
+    + linha("Passariam de 5 s", pc(acima(5000)))
+    + '<p style="margin-top:12px;font-size:13px"><b>Sugestão para este aparelho: prazo de ' + sug.toFixed(1).replace(".",",") + ' s.</b><br>'
+    + '<span style="color:var(--cinza)">É o que cobre 9 em cada 10 gravações boas. Prazo curto demais faz o aviso aparecer à toa e o inspetor parar de ler; longo demais deixa o salvamento lento.</span></p>'
+    + '<p style="font-size:12px;color:var(--cinza)">Peça a cada inspetor para abrir esta tela — o sinal varia de aparelho e de área da fábrica.</p>');};
 window.verAuditoria=async()=>{
   if(!ISADMIN)return;
   const snap=await getDocs(query(collection(db,"auditoria"),orderBy("em","desc"),limit(80)));
   const rows=snap.docs.map(d=>d.data());
-  $("dlgBody").innerHTML=`<h3>🕵️ Trilha de auditoria</h3><div style="font-size:12.5px;line-height:1.7;max-height:60vh;overflow:auto;margin-top:10px">`+
+  /* uma trilha que perde eventos em silencio nao serve como trilha: se alguma
+     gravacao falhou nesta sessao, o admin precisa ver antes de confiar na lista. */
+  const falhas=window._AUDIT_FALHAS||[];
+  const aviso=falhas.length?`<div style="border-left:4px solid var(--nc);background:#fdecea;padding:8px 10px;border-radius:6px;margin:8px 0;font-size:12.5px">
+      <b>⚠️ ${falhas.length} evento(s) não foram gravados na trilha nesta sessão.</b><br>
+      ${falhas.slice(-5).map(f=>`${esc(f.acao)} — ${esc(f.erro)}`).join("<br>")}
+      <br><small>A lista abaixo está incompleta. Recarregue e refaça se precisar de trilha completa.</small></div>`:"";
+  $("dlgBody").innerHTML=`<h3>🕵️ Trilha de auditoria</h3>${aviso}<div style="font-size:12.5px;line-height:1.7;max-height:60vh;overflow:auto;margin-top:10px">`+
     (rows.length?rows.map(r=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0"><b>${esc(r.acao)}</b> — ${esc(r.nome||r.email)}<br><small style="color:var(--cinza)">${new Date(r.em).toLocaleString("pt-BR")}${r.det?" · "+esc(JSON.stringify(r.det)).slice(0,140):""}</small></div>`).join(""):"Sem eventos registrados.")+
     `</div><button class="btn sec" onclick="dlg.close()">Fechar</button>`;
   $("dlg").showModal();};
@@ -2390,21 +2807,45 @@ window.laudoPDF=async()=>{
   const pm=$("pMes").value;
   if(!pm)return toast("Escolha o mês no Painel.");
   const mes=ITENS.filter(i=>i.mes===pm);
-  const ext=mes.filter(i=>i.tipo==="ext"),hid=mes.filter(i=>i.tipo==="hid");
+  /* Um ponto inspecionado duas vezes no mes aparecia duas vezes na tabela e no titulo,
+     enquanto o indicador "Inspecionados" logo acima ja contava uma vez so (usa conjunto).
+     Aqui fica a inspecao MAIS RECENTE de cada ponto; as anteriores seguem no historico
+     e na aba Registros — nada e apagado, so deixa de duplicar o relatorio. */
+  const ultimaPorPonto=arr=>{
+    const m=new Map();
+    arr.forEach(i=>{
+      const k=i.tipo+"_"+(i.eqSeq??i.eqPat);
+      const a=m.get(k);
+      const maisNova=!a||String(i.data||"")>String(a.data||"")
+        ||(String(i.data||"")===String(a.data||"")&&(i.criadoEm||0)>(a.criadoEm||0));
+      if(maisNova)m.set(k,i);});
+    return [...m.values()];};
+  const ext=ultimaPorPonto(mes.filter(i=>i.tipo==="ext")),hid=ultimaPorPonto(mes.filter(i=>i.tipo==="hid"));
+  const repetidos=mes.length-(ext.length+hid.length);
+  /* Decisao do Eder (01/09): quando o ponto foi inspecionado mais de uma vez no mes,
+     o laudo conta SO O ESTADO FINAL. Uma NC resolvida na reinspecao nao pesa mais no
+     percentual nem reaparece na secao 4. Os registros anteriores seguem intactos na
+     aba Registros e no historico do equipamento. */
+  const atual=[...ext,...hid];
   const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
   const totPontos=extRota.length+CAD.hid.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
-  const nc=mes.filter(i=>i.conformidade==="NC");
-  const div=mes.filter(i=>i.divergencia);
+  const nc=atual.filter(i=>i.conformidade==="NC");
+  const div=atual.filter(i=>i.divergencia);
   const condMes=CONDS.filter(c=>c.ativo!==false&&String(c.mes||String(c.data||"").slice(0,7))===pm)
     .sort((a,b)=>String(a.data||"").localeCompare(String(b.data||"")));
   const cobertura=totPontos?Math.round(100*inspSet.size/totPontos):0;
-  const confPct=mes.length?Math.round(100*(mes.length-nc.length)/mes.length):0;
+  const confPct=atual.length?Math.round(100*(atual.length-nc.length)/atual.length):0;
 
   /* assinaturas dos inspetores do mês */
+  /* Se esta busca falhar, o laudo sai sem assinatura nenhuma. Antes o erro era
+     engolido e o documento parecia completo — inclusive para quem o recebe de fora. */
   const assinMap={};
+  let assinOk=true;
   try{const snap=await getDocs(collection(db,"usuarios"));
-    snap.docs.forEach(d=>{const u=d.data();if(u.nome)assinMap[u.nome]=u.assin||"";});}catch(e){}
+    snap.docs.forEach(d=>{const u=d.data();if(u.nome)assinMap[u.nome]=u.assin||"";});}
+  catch(e){assinOk=false;console.error("[assinaturas do laudo]",e);}
+  if(!assinOk)toast("⚠️ Não consegui carregar as assinaturas. O laudo vai sair sem elas — confira antes de enviar.");
   const inspetores=[...new Set(mes.map(i=>i.inspetor).filter(Boolean))];
 
   /* pendências agrupadas por área */
@@ -2430,7 +2871,7 @@ window.laudoPDF=async()=>{
     if(i.tipo==="ext")return Object.entries(i.checklist||{}).filter(([,v])=>v==="NC").map(([k])=>k);
     const h=i.hid||{},mapa={storz:"Storz",esguichos:"Esguichos",mangueiras:"Mangueiras",registro:"Registro"};
     return Object.entries(mapa).filter(([k])=>h[k]==="NC").map(([,v])=>v);};
-  const todasNC=mes.filter(i=>itensNC(i).length);
+  const todasNC=atual.filter(i=>itensNC(i).length);
   const FNC=new Map();for(const x of todasNC)FNC.set(x.id,await fotosDe(x));
 
   const html=`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -2447,6 +2888,7 @@ window.laudoPDF=async()=>{
     .k{flex:1;min-width:88px;border:1px solid #ddd;border-radius:6px;padding:7px 9px;text-align:center}
     .k b{display:block;font-size:17px;color:#7a1f2b}
     .k span{font-size:9.5px;color:#666;text-transform:uppercase;letter-spacing:.3px}
+    .nota{font-size:10.5px;color:#555;margin:2px 0 10px;padding-left:8px;border-left:3px solid #d8cfcf}
     table{width:100%;border-collapse:collapse;margin-top:4px}
     thead{display:table-header-group}
     th{background:#f1eded;text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;color:#5a5a5a;padding:5px 6px;border:1px solid #ddd}
@@ -2483,7 +2925,9 @@ window.laudoPDF=async()=>{
     <div class="k"><b>${nc.length}</b><span>Não conformes</span></div>
     <div class="k"><b>${div.length}</b><span>Divergências</span></div>
   </div>
+  <p class="nota">O percentual de conformidade considera os <b>itens críticos</b> do checklist. Não conformidades de <b>acesso e sinalização</b> ficam registradas no item e listadas na seção 4, sem alterar a conformidade do ponto${repetidos>0?", e os números acima consideram a inspeção mais recente de cada ponto":""}.</p>
 
+  ${repetidos>0?`<p style="font-size:12px;color:#92400e">ℹ️ ${repetidos} ${repetidos===1?"ponto foi inspecionado":"pontos foram inspecionados"} mais de uma vez neste mês. A tabela mostra a inspeção mais recente de cada um; as anteriores continuam na aba Registros.</p>`:""}
   <h2>2. Extintores inspecionados (${ext.length})</h2>
   ${ext.length?`<table><thead><tr><th>Local</th><th>Nº</th><th>Localização</th><th>Agente / Carga</th><th>Conf.</th><th>Diverg.</th><th>Data</th><th>Inspetor</th></tr></thead>
     <tbody>${ext.slice().sort((a,b)=>(a.eqSeq||0)-(b.eqSeq||0)).map(linhaExt).join("")}</tbody></table>`:`<p class="vazio">Nenhum extintor inspecionado no período.</p>`}
@@ -2493,6 +2937,7 @@ window.laudoPDF=async()=>{
     <tbody>${hid.map(linhaHid).join("")}</tbody></table>`:`<p class="vazio">Nenhum hidrante inspecionado no período.</p>`}
 
   <h2>4. Não conformidades (${todasNC.length})</h2>
+  ${todasNC.length?`<p class="nota">Inclui não conformidades de acesso e sinalização, que por critério interno não alteram a conformidade do ponto — por isso este número pode ser maior que o de "Não conformes" no resumo.</p>`:""}
   ${todasNC.length?todasNC.map(i=>`<div class="ncbox">
       <div class="tt">${i.tipo==="ext"?`Ext ${i.eqSeq} · Nº ${esc(String(i.eqNum??"—"))}`:`Hidrante ${esc(String(i.eqPat??""))}`} — ${esc(i.eqLoc||"")}</div>
       <div>Itens não conformes: <b>${itensNC(i).map(esc).join(", ")}</b> · ${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
@@ -2501,6 +2946,9 @@ window.laudoPDF=async()=>{
     </div>`).join(""):`<p class="vazio">Nenhuma não conformidade registrada no período.</p>`}
 
   <h2>5. Pendências do período (${totPontos-inspSet.size})</h2>
+  ${(()=>{const rr=extRota.filter(e=>isReserva(e)),rp=rr.filter(e=>!inspSet.has("ext_"+e.seq));
+    if(!rp.length)return "";
+    return `<p class="nota" style="border-left-color:#b3261e;color:#b3261e"><b>${rp.length===rr.length?"Nenhum":`${rp.length} de ${rr.length}`} cilindro(s) do pool de reserva ${rp.length===rr.length?"foi inspecionado":"ficaram sem inspeção"} neste período.</b> Os cilindros de reserva entram na rota como os instalados — são eles que assumem o lugar quando um extintor vai para recarga.</p>`;})()}
   ${Object.keys(pend).length?Object.keys(pend).sort().map(a=>`<div class="area"><b>${esc(a)}</b> (${pend[a].length}): ${pend[a].map(esc).join(" · ")}</div>`).join(""):`<p class="vazio">Rota do mês 100% cumprida.</p>`}
 
   <h2>6. Manutenções vencidas ou a vencer em 90 dias</h2>
@@ -2524,6 +2972,7 @@ window.laudoPDF=async()=>{
     :`<p class="vazio">Nenhum cilindro condenado neste mês.</p>`}
 
   <h2>8. Responsáveis pela inspeção</h2>
+  ${assinOk?"":`<p class="nota" style="border-left-color:#b3261e;color:#b3261e"><b>⚠️ As assinaturas não puderam ser carregadas do sistema no momento em que este laudo foi gerado.</b> Os espaços abaixo estão em branco por falha técnica, não por ausência de responsável. Gere o laudo novamente com conexão estável antes de encaminhar.</p>`}
   <div class="assinaturas">
     ${inspetores.length?inspetores.map(n=>`<div class="ass">${assinMap[n]?`<img src="${assinMap[n]}">`:`<div style="height:52px"></div>`}<div class="ln">${esc(n)}<br><span style="color:#777;font-size:9px">Inspetor responsável</span></div></div>`).join("")
       :`<div class="ass"><div style="height:52px"></div><div class="ln">&nbsp;<br><span style="color:#777;font-size:9px">Inspetor responsável</span></div></div>`}
@@ -2541,7 +2990,7 @@ window.laudoPDF=async()=>{
   const w=window.open("","_blank");
   if(!w)return toast("Libere as janelas pop-up do navegador para gerar o laudo.");
   w.document.open();w.document.write(html);w.document.close();
-  audit("laudo_pdf",{mes:pm,inspecoes:mes.length,nc:todasNC.length});
+  audit("laudo_pdf",{mes:pm,pontos:atual.length,registros:mes.length,nc:todasNC.length});
   toast("📄 Laudo gerado — na janela de impressão escolha \"Salvar como PDF\".");};
 
 /* ---------- Backup ---------- */
@@ -2692,9 +3141,18 @@ window.etiquetasQR=()=>{
     <select id="qtArea"><option value="">Todas as áreas</option>${areas.map(a=>`<option>${esc(a)}</option>`).join("")}</select>
     <label>Individual: digite o nº, ID ou descrição (em branco = todos do filtro)</label>
     <input id="qtBusca" placeholder="ex.: 1234">
-    <p style="font-size:11.5px;color:var(--cinza);margin-top:6px">📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).</p>
+    <label>Formato de impressão</label>
+    <select id="qtFormato">
+      <option value="a4">📄 Folha A4 — Pimaco A4360 (21 etiquetas por folha)</option>
+      <option value="zebra">🖨️ Zebra ZD220 — etiqueta 80×30mm (uma por etiqueta)</option>
+    </select>
+    <p style="font-size:11.5px;color:var(--cinza);margin-top:6px" id="qtDica">📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).</p>
     <button class="btn" onclick="geraEtiquetas()">🖨️ Gerar e imprimir</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  const dica=$("qtFormato");
+  if(dica)dica.onchange=()=>{$("qtDica").innerHTML=dica.value==="zebra"
+    ?'🖨️ Uma etiqueta por QR, <b>80mm de largura × 30mm de altura</b>. Na janela de impressão escolha a <b>Zebra ZD220</b>, margens <b>Nenhuma</b> e escala <b>100%</b> (não use "Ajustar à página").'
+    :'📋 Layout pronto para a folha <b>Pimaco A4360</b> (etiqueta adesiva 38,1×63,5mm, 21 por folha A4, InkJet e Laser).';};
   $("dlg").showModal();};
 window.geraEtiquetas=async()=>{
   const t=$("qtTipo").value,area=$("qtArea").value,busca=$("qtBusca").value.trim().toLowerCase();
@@ -2706,34 +3164,59 @@ window.geraEtiquetas=async()=>{
   if(!areas.length&&!extns.length&&!hids.length)return toast("Nenhum equipamento com esse filtro.");
   $("dlg").close();
   toast(`Gerando ${areas.length+extns.length+hids.length} etiquetas… aguarde`);
+  const fmt=($("qtFormato")&&$("qtFormato").value)||"a4";
+  /* na termica o QR e gerado maior: a ZD220 imprime a 203 dpi e um QR de 110px
+     ficaria borrado ao ser esticado para 25mm */
+  const qrPx=fmt==="zebra"?256:110;
   const off=document.createElement("div");off.style.display="none";document.body.appendChild(off);
   const mk=txt=>new Promise(res=>{const d=document.createElement("div");off.appendChild(d);
-    new QRCode(d,{text:txt,width:110,height:110,correctLevel:QRCode.CorrectLevel.M});
+    new QRCode(d,{text:txt,width:qrPx,height:qrPx,correctLevel:QRCode.CorrectLevel.M});
     setTimeout(()=>{const el=d.querySelector("img,canvas");res(el.tagName==="IMG"?el.src:el.toDataURL());},15);});
   let cards="";
-  /* 📍 Etiqueta do LOCAL (posição fixa): ID do local, descrição e padrão de agente/carga */
+  const zebra=fmt==="zebra";
+  /* na termica: sem emoji (o driver pode trocar por caixa) e texto em preto puro */
+  const cartao=(src,titulo,sub,extra)=>zebra
+    ?`<div class="et"><img src="${src}"><div class="tx"><b>${titulo}</b>${sub?`<span>${sub}</span>`:""}${extra?`<span>${extra}</span>`:""}</div></div>`
+    :`<div class="et"><img src="${src}"><div><b>${titulo}</b>${sub?`<br><small>${sub}</small>`:""}${extra?`<br>${extra}`:""}</div></div>`;
+  /* Etiqueta do LOCAL (posição fixa): ID do local, descrição e padrão de agente/carga */
   for(const e of areas){const src=await mk("PAPIRUS-EXT:"+e.seq);
-    cards+=`<div class="et"><img src="${src}"><div><b>📍 LOCAL ${e.seq}</b><br><small>${esc(String(e.loc||"").slice(0,48))}</small><br>Padrão: <b>${esc(e.agp||"—")} ${esc(e.cgp||"")}</b></div></div>`;}
-  /* 🧯 Etiqueta do EXTINTOR (acompanha o equipamento): agente, carga e Nº do chassi */
+    cards+=cartao(src,`${zebra?"":"📍 "}LOCAL ${e.seq}`,esc(String(e.loc||"").slice(0,zebra?38:48)),
+      `Padrão: <b>${esc(e.agp||"—")} ${esc(e.cgp||"")}</b>`);}
+  /* Etiqueta do EXTINTOR (acompanha o equipamento) */
   for(const e of extns){const src=await mk("PAPIRUS-EXTN:"+e.num);
-    cards+=`<div class="et"><img src="${src}"><div><b>🧯 Nº ${esc(String(e.num))}</b><br>${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}</div></div>`;}
-  /* 🚒 Etiqueta do HIDRANTE: ID e nome da área */
+    cards+=cartao(src,`${zebra?"":"🧯 "}Nº ${esc(String(e.num))}`,
+      `${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}`,"");}
+  /* Etiqueta do HIDRANTE */
   for(const h of hids){const src=await mk("PAPIRUS-HID:"+h.pat);
-    cards+=`<div class="et"><img src="${src}"><div><b>🚒 ${esc(String(h.pat))}</b><br><small>${esc(String(h.loc||"").slice(0,48))}</small></div></div>`;}
+    cards+=cartao(src,`${zebra?"HIDRANTE ":"🚒 "}${esc(String(h.pat))}`,
+      esc(String(h.loc||"").slice(0,zebra?38:48)),"");}
   off.remove();
   const fr=document.createElement("iframe");fr.style.display="none";document.body.appendChild(fr);
-  fr.contentDocument.write(`<html><head><title>Etiquetas QR — Papirus — Pimaco A4360</title><style>
-    @page{size:A4;margin:15.15mm 7.2mm}
-    *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;margin:0}
+  /* Molde Pimaco A4360: 63,5x38,1mm, 3 colunas x 7 linhas, 2,5mm entre colunas */
+  const cssA4=`@page{size:A4;margin:15.15mm 7.2mm}
     .grid{display:flex;flex-wrap:wrap}
-    /* Molde Pimaco A4360: 63,5mm x 38,1mm · 3 colunas x 7 linhas · sem espaço vertical · 2,5mm entre colunas */
     .et{width:63.5mm;height:38.1mm;margin-right:2.5mm;padding:1.5mm 2mm;border:1px dotted #bbb;
       display:flex;gap:2mm;align-items:center;overflow:hidden;page-break-inside:avoid;font-size:9px;line-height:1.3}
     .et:nth-child(3n){margin-right:0}
     .et img{width:26mm;height:26mm;flex-shrink:0}
     .et b{font-size:10.5px}
-    .et small{font-size:8px;color:#555}</style></head><body><div class="grid">${cards}</div></body></html>`);
+    .et small{font-size:8px;color:#555}`;
+  /* Zebra ZD220 (203 dpi): uma etiqueta de 80x30mm por QR, sem margem e sem borda.
+     page-break-after joga cada etiqueta para a proxima; o ultimo nao quebra, senao
+     a impressora avanca uma etiqueta em branco no fim do lote. */
+  const cssZebra=`@page{size:80mm 30mm;margin:0}
+    .grid{display:block}
+    .et{width:80mm;height:30mm;padding:1.5mm 2mm;display:flex;gap:2mm;align-items:center;
+      overflow:hidden;color:#000;page-break-after:always;break-after:page;page-break-inside:avoid}
+    .et:last-child{page-break-after:auto;break-after:auto}
+    .et img{width:25mm;height:25mm;flex-shrink:0;image-rendering:pixelated}
+    .tx{display:flex;flex-direction:column;justify-content:center;overflow:hidden;line-height:1.25}
+    .tx b{font-size:13px;font-weight:700}
+    .tx span{font-size:9.5px}`;
+  fr.contentDocument.write(`<html><head><title>Etiquetas QR — Papirus — ${zebra?"Zebra ZD220 80x30mm":"Pimaco A4360"}</title><style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;margin:0}
+    ${zebra?cssZebra:cssA4}</style></head><body><div class="grid">${cards}</div></body></html>`);
   fr.contentDocument.close();
   setTimeout(()=>{fr.contentWindow.print();setTimeout(()=>fr.remove(),3000);},500);};
 
@@ -2858,9 +3341,19 @@ window.salvaCondenacao=async()=>{
     rotulo:"⛔ Confirmar condenação",voltar:"Cancelar"});
   if(!ok)return;
 
+  /* A foto e a evidencia de que o cilindro foi condenado. Se o processamento falhar,
+     antes a condenacao era gravada sem foto e a tela dizia que deu tudo certo — some
+     justamente a prova do caso em que ela mais importa. Agora quem decide e o usuario. */
   let foto="";
-  try{if(arqFoto)foto=await comprimir(arqFoto,1000,.6,[`Cilindro Nº ${num}`,`Condenado em ${fmtBR(data)}`,`Relatório ${relatorio}`]);}
-  catch(e){}
+  if(arqFoto){
+    try{foto=await comprimir(arqFoto,1000,.6,[`Cilindro Nº ${num}`,`Condenado em ${fmtBR(data)}`,`Relatório ${relatorio}`]);}
+    catch(e){
+      console.error("[foto da condenação]",e);
+      if(!confirm("⚠️ A foto não pôde ser processada e NÃO será anexada.\n\n"
+        +"A foto é a evidência da condenação do cilindro Nº "+num+".\n\n"
+        +"Registrar a condenação assim mesmo, sem foto?"))
+        return toast("Condenação cancelada. Tente outra foto ou refaça em outro aparelho.");}
+    if(!foto&&arqFoto)console.warn("[condenação] foto vazia apos comprimir");}
   const doc0={num:String(num),numKey:chaveCil(num),
     agente:eq?(eq.tipo||eq.agp||""):"",carga:eq?String(eq.carga??eq.cgp??""):"",
     fab:eq?(eq.fab||null):null,seqOrigem:eq?(eq.seq??null):null,
@@ -2873,7 +3366,9 @@ window.salvaCondenacao=async()=>{
     audit("condenar",`Nº ${num} · ${motivo} · relatório ${relatorio} · ${ondeEsta}`);
     fechaDlg();
     if(!gravou)return toast(`\u{1F4F4} Condena\u00e7\u00e3o do N\u00ba ${num} salva no aparelho - envia quando houver conex\u00e3o.`);
-    toast(`⛔ Cilindro Nº ${num} condenado. Substitua por um reserva quando puder.`);
+    toast(arqFoto&&!foto
+      ? `⛔ Cilindro Nº ${num} condenado — SEM a foto. Anexe a evidência depois pelo histórico.`
+      : `⛔ Cilindro Nº ${num} condenado. Substitua por um reserva quando puder.`);
   }catch(e){toast("Erro ao registrar a condenação: "+e.message);}};
 
 window.desfazerCondenacao=async(id)=>{
@@ -2889,16 +3384,17 @@ window.desfazerCondenacao=async(id)=>{
     rotulo:"↩️ Desfazer condenação",voltar:"Manter condenado"});
   if(!ok)return;
   try{
-    await comTimeout(updateDoc(doc(db,"condenacoes",id),
+    const okDesf=await comTimeout(updateDoc(doc(db,"condenacoes",id),
       {ativo:false,desfeitoPor:NOME||auth.currentUser.email,desfeitoEm:Date.now()}));
     audit("desfazer-condenacao",`Nº ${c.num} · relatório ${c.relatorio||"—"}`);
-    fechaDlg();toast(`↩️ Condenação do Nº ${c.num} desfeita.`);
+    fechaDlg();avisaGravacao(okDesf,`↩️ Condenação do Nº ${c.num} desfeita.`);
   }catch(e){toast("Erro ao desfazer: "+e.message);}};
 
 /* ---------- Cadastro editável (admin) ---------- */
 async function salvaCADX(acao,det){
   if(!podeGravar())return;
-  try{await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));aplicaOvr();audit(acao,det);$("dlg").close();toast("✅ Cadastro atualizado!");}
+  try{const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    aplicaOvr();audit(acao,det);$("dlg").close();avisaGravacao(okCadx,"✅ Cadastro atualizado!");}
   catch(e){toast("Erro: "+e.message);}}
 /* ---------- Novo local (posição vazia, sem cilindro) ----------
    Cria só a posição: ID, descrição da localização e o padrão de agente/carga.
@@ -2946,11 +3442,11 @@ window.salvaNovoLocal=async()=>{
     agp:$("nlAgp").value,cgp,loc,pat:$("nlPat").value.trim()||seq};
   CADX.extAdd.push(novo);
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okNL=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();audit("novo_local",{seq,loc,padrao:`${novo.agp} ${cgp}`});
     try{render();}catch(e){}
     $("dlg").close();
-    toast(`📍 Local ${seq} criado — ${loc}. Imprima a etiqueta QR e verifique o cilindro em campo.`);
+    avisaGravacao(okNL,`📍 Local ${seq} criado — ${loc}. Imprima a etiqueta QR e verifique o cilindro em campo.`);
   }catch(e){
     CADX.extAdd=CADX.extAdd.filter(x=>x!==novo);
     toast("Erro ao criar o local: "+e.message);}};
@@ -3018,16 +3514,27 @@ window.salvaNovoExt=async()=>{
   lista.forEach(e=>{if(+e.seq>=want)e.seq=+e.seq+1;});
   lista.push(novo);
   lista.sort((a,b)=>+a.seq-+b.seq);
+  const cadxOrig={...CADX};
   CADX={...CADX,extReset:true,extDel:[],extEdit:{},extAdd:lista};
   const novoOVR={};for(const k in OVR){novoOVR[+k>=want?String(+k+1):k]=OVR[k];}
   OVR=novoOVR;
+  /* Os dois documentos so fazem sentido juntos: OVR deslocado +1 e a lista deslocada +1.
+     Em gravacoes separadas, se a primeira falhasse depois do prazo, o cadastro ficava
+     permanentemente deslocado em 1 (cada override caindo no local errado). O lote grava
+     os dois de uma vez ou nenhum. */
+  const ovrAnterior=OVR, cadxAnterior=cadxOrig;
   try{
-    await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:OVR}));
-    await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const lote=writeBatch(db);
+    lote.set(doc(db,"config","cadastroExt"),{overrides:OVR});
+    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    await lote.commit();
     aplicaOvr();audit("renumerar_locais",{aPartirDe:want,num:novo.num});
     $("dlg").close();
     toast(`✅ Local ${want} inserido — os locais seguintes foram renumerados. Reimprima as etiquetas de local a partir do ${want}.`);
-  }catch(e){toast("Erro na renumeração: "+e.message);}};
+  }catch(e){
+    /* desfaz na memoria: sem isto a tela mostraria a renumeracao que o servidor recusou */
+    OVR=ovrAnterior;CADX=cadxAnterior;aplicaOvr();
+    toast("Erro na renumeração, nada foi alterado: "+e.message);}};
 window.salvaNovoHid=()=>{
   if(!podeGravar())return;
   const pat=$("cPat").value.trim();if(!pat)return toast("Informe o patrimônio.");
@@ -3077,7 +3584,20 @@ window.abreEdicaoHidPat=pat=>{
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('hid','${h.pat}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
     $("dlg").showModal();};
+/* Um mesmo numero de cilindro em duas posicoes faz a inspecao de uma contar pela
+   outra: a posicao realmente nao inspecionada nunca aparece como pendente. Este
+   aviso nao existia, e foi por aqui que entraram os casos encontrados no cadastro. */
+window.confereNumeroUnico=(seqAtual,num)=>{
+  const n=String(num||"").trim();
+  if(!n)return true;
+  const jaTem=(CAD.ext||[]).filter(e=>String(e.seq)!==String(seqAtual)&&String(e.num??"").trim()===n);
+  if(!jaTem.length)return true;
+  const onde=jaTem.map(e=>(isReserva(e)?"Reserva ":"Ext ")+e.seq+(e.loc?" \u2014 "+e.loc:"")).join("\n");
+  return confirm("\u26a0\uFE0F O cilindro N\u00ba "+n+" j\u00e1 consta em:\n\n"+onde
+    +"\n\nUm mesmo cilindro em duas posi\u00e7\u00f5es faz a inspe\u00e7\u00e3o de uma contar pela outra, e a posi\u00e7\u00e3o que ningu\u00e9m inspecionou nunca aparece como pendente."
+    +"\n\nSalvar assim mesmo?");};
 window.salvaEdEquip=(t,id)=>{
+  if(t==="ext"&&!confereNumeroUnico(id,$("xNum").value.trim()))return;
   if(t==="ext")CADX.extEdit[id]={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
   else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
   salvaCADX("editar_equipamento",{t,id});};
@@ -3233,7 +3753,12 @@ window.processaLote=async modo=>{
             rem++;return;
           }
           const nv={};
-          if(num)nv.num=num;if(pat)nv.pat=pat;if(agp)nv.agp=agp;if(cgp)nv.cgp=cgp;if(locRaw)nv.loc=locRaw;
+          /* o modo "adicionar" ja recusa numero repetido; o modo "corrigir" nao recusava,
+             e por aqui tambem entra cilindro em duas posicoes */
+          if(num){const dono=CAD.ext.find(x=>String(x.seq)!==String(seq)&&String(x.num??"").trim()===num);
+            if(dono){pulos.push(`linha ${rn}: N\u00ba ${num} j\u00e1 consta em ${isReserva(dono)?"Reserva":"Ext"} ${dono.seq}`);return;}
+            nv.num=num;}
+          if(pat)nv.pat=pat;if(agp)nv.agp=agp;if(cgp)nv.cgp=cgp;if(locRaw)nv.loc=locRaw;
           if(fab)nv.fab=+fab||null;if(fabr)nv.fabricante=fabr;if(man2)nv.man2=man2;if(man3)nv.man3=man3;
           if(!Object.keys(nv).some(k=>String(nv[k]??"")!==String(e[k]??"")))return;
           CADX.extEdit[String(seq)]={...(CADX.extEdit[String(seq)]||{}),...nv};edit++;
@@ -3266,11 +3791,11 @@ window.processaLote=async modo=>{
       }});
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
     if(modo==="edit"&&!edit&&!rem)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
-    await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okImp=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();
     audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)});
     $("dlg").close();
-    toast(`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
+    avisaGravacao(okImp,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
   }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Export Excel (idêntico ao modelo) ---------- */
@@ -3309,18 +3834,32 @@ function dataCell(cell,gray,ext){
 function setWidths(ws,w){for(const k in w)ws.getColumn(k).width=w[k];}
 async function blocoAssinaturas(wb,ws,r,nomes){
   if(!nomes.size)return;
-  let us=[];try{const s=await getDocs(collection(db,"usuarios"));us=s.docs.map(d=>d.data());}catch(e){}
+  /* mesma armadilha do laudo: sem isto o relatorio sai sem assinatura e sem explicacao */
+  let us=[],assinOk=true;
+  try{const s=await getDocs(collection(db,"usuarios"));us=s.docs.map(d=>d.data());}
+  catch(e){assinOk=false;console.error("[assinaturas do Excel]",e);}
   let row=r+2;
   ws.getCell(row,2).value="Assinaturas dos responsáveis pela inspeção:";ws.getCell(row,2).font={bold:true,size:12};
+  if(!assinOk){row++;
+    const av=ws.getCell(row,2);
+    av.value="⚠️ As assinaturas não puderam ser carregadas do sistema. Os campos abaixo estão em branco por falha técnica — gere o relatório de novo com conexão estável antes de encaminhar.";
+    av.font={bold:true,color:{argb:"FFB3261E"}};
+    if(typeof window!=="undefined")try{toast("⚠️ Não consegui carregar as assinaturas. O relatório vai sair sem elas — confira antes de enviar.");}catch(e){}}
   row++;
   for(const n of nomes){
     const u=us.find(x=>(x.nome||"").trim().toLowerCase()===String(n).trim().toLowerCase());
+    let colou=false;
     if(u?.assin){try{
       const id=wb.addImage({base64:u.assin,extension:"png"});
       ws.addImage(id,{tl:{col:1,row:row-1},ext:{width:190,height:62}});
-    }catch(e){}}
+      colou=true;
+    }catch(e){console.error("[assinatura de "+n+"]",e);}}
     ws.getRow(row).height=50;
-    const c=ws.getCell(row+1,2);c.value=`${n}${u?.assin?"":" (sem assinatura cadastrada)"}`;
+    /* tres situacoes diferentes que antes viravam a mesma frase */
+    const obs=!assinOk?" (assinatura não carregada — falha técnica)"
+      :(u?.assin?(colou?"":" (assinatura não pôde ser inserida — falha técnica)")
+                :" (sem assinatura cadastrada)");
+    const c=ws.getCell(row+1,2);c.value=`${n}${obs}`;
     c.font={italic:true};c.border={top:{style:"thin"}};
     row+=3;}}
 
