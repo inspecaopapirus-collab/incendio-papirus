@@ -547,8 +547,10 @@ const writeBatch = MODO_TESTE
 
 /* comTimeout devolve false quando a gravacao nao confirmou no prazo (offline, sinal ruim).
    Antes o app dizia "pronto" de qualquer jeito, e o cadastro podia nunca subir. */
-window.avisaGravacao = (ok, msgOk, msgPend) => toast(ok ? msgOk : (msgPend
-  || "\uD83D\uDCF4 Salvo no aparelho, ainda n\u00e3o no sistema \u2014 sobe quando houver conex\u00e3o. Confira depois."));
+window.avisaGravacao = (ok, msgOk, msgPend) => toast(ok ? msgOk
+  : (window.SEM_GRAVACAO_LOCAL
+      ? "\u26a0\ufe0f Ainda N\u00c3O subiu, e este aparelho n\u00e3o guarda offline. N\u00c3O feche o app at\u00e9 confirmar."
+      : (msgPend || "\uD83D\uDCF4 Salvo no aparelho, ainda n\u00e3o no sistema \u2014 sobe quando houver conex\u00e3o. Confira depois.")));
 const _dlgAbre = html => { $("dlgBody").innerHTML = html
   + '<button class="btn sec" style="margin-top:14px" onclick="dlg.close()">Fechar</button>'; $("dlg").showModal(); };
 
@@ -911,7 +913,48 @@ if(configOK){fb=initializeApp(firebaseConfig);
     initializeAppCheck(fb,{provider:new ReCaptchaEnterpriseProvider(APPCHECK_SITE_KEY),isTokenAutoRefreshEnabled:true});
   }catch(e){console.error("[appcheck] não inicializou (app segue funcionando normalmente):",e);}
   auth=getAuth(fb);
+  /* A promessa "salvo no aparelho, sobe quando houver conexao" so vale se a gravacao
+     local do Firestore estiver ativa. Em alguns aparelhos ela cai (dados de uma versao
+     mais nova do SDK, navegacao anonima, armazenamento bloqueado) e o SDK apenas AVISA
+     no console: o registro passa a viver so na memoria da pagina e some se o app fechar.
+     Sem detectar isso, o app repetiria a mesma mentira que passamos o dia corrigindo.
+     Nao existe API publica para perguntar; o aviso do proprio SDK e' o unico sinal. */
+  try{
+    const _cw=console.warn,_ce=console.error;
+    const _fareja=args=>{try{
+      const txt=Array.prototype.map.call(args,x=>String((x&&x.message)||x)).join(" ");
+      if(/Falling back to memory cache|persistence disabled|not compatible with the version/i.test(txt)){
+        window.SEM_GRAVACAO_LOCAL=true;try{avisaSemGravacaoLocal();}catch(e){}}
+    }catch(e){}};
+    console.warn=function(){_fareja(arguments);return _cw.apply(console,arguments);};
+    console.error=function(){_fareja(arguments);return _ce.apply(console,arguments);};
+    setTimeout(()=>{try{console.warn=_cw;console.error=_ce;}catch(e){}},15000);
+  }catch(e){}
   db=initializeFirestore(fb,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});}
+
+/* Faixa fixa no topo: o inspetor precisa saber ANTES de sair inspecionando. */
+let _faixaSemGrav=false;
+function avisaSemGravacaoLocal(){
+  if(_faixaSemGrav)return; _faixaSemGrav=true;
+  const põe=()=>{
+    if(document.getElementById("semGravLocal"))return;
+    const d=document.createElement("div");
+    d.id="semGravLocal";
+    d.style.cssText="position:fixed;left:0;right:0;top:0;z-index:99998;background:#8a1c1c;color:#fff;"
+      +"font:600 12.5px/1.45 system-ui,sans-serif;padding:8px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.3)";
+    d.innerHTML='⚠️ <b>Este aparelho não está guardando os registros offline.</b> '
+      +'NÃO feche o app depois de salvar — espere aparecer a confirmação. '
+      +'<button type="button" style="margin-left:8px;background:#fff;color:#8a1c1c;border:0;border-radius:5px;padding:3px 9px;font:600 12px system-ui;cursor:pointer" '
+      +'onclick="comoResolverGravacaoLocal()">Como resolver</button>';
+    document.body.appendChild(d);
+    document.body.style.paddingTop="38px";};
+  if(document.body)põe(); else addEventListener("DOMContentLoaded",põe);}
+window.comoResolverGravacaoLocal=()=>{
+  _dlgAbre("<h3>⚠️ Registros offline desligados neste aparelho</h3>"
+    +'<p style="font-size:13px;line-height:1.6">Normalmente, quando não há sinal, o registro fica guardado no aparelho e sobe sozinho quando a conexão volta. <b>Neste aparelho isso não está funcionando</b> — o registro fica só na memória da tela aberta.</p>'
+    +'<p style="font-size:13px;line-height:1.6"><b>O que fazer enquanto estiver assim:</b> depois de salvar, não feche o app nem troque de aplicativo até a mensagem de confirmação aparecer.</p>'
+    +'<p style="font-size:13px;line-height:1.6"><b>Como resolver:</b> toque no cadeado ao lado do endereço &rarr; Configurações do site &rarr; <b>Excluir dados</b>. Depois entre de novo no app. Isso limpa o armazenamento antigo e religa a gravação offline.</p>'
+    +'<p style="font-size:12.5px;color:var(--cinza)">Causa: o navegador guardou dados de uma versão diferente do banco e o sistema não consegue reaproveitá-los.</p>');};
 
 /* ---------- Normalização p/ comparar com o padrão ---------- */
 const normAg=s=>String(s||"").toUpperCase().replace(/PQS/g,"").replace(/PREMIUM/g,"").replace(/[^A-Z0-9]/g,"");
@@ -1467,7 +1510,9 @@ window.salvar=async()=>{
     ["hStorz","hEsg","hMang","hReg"].forEach(i=>$(i).value="C");
     EQ=null;$("padraoBox").classList.add("hidden");ajustaCO2();
     toast(ok&&okFoto?"✅ Inspeção registrada!"
-      :!ok?"📴 Salvo no aparelho — envia quando houver conexão."
+      :!ok?(window.SEM_GRAVACAO_LOCAL
+            ?"⚠️ Ainda NÃO subiu, e este aparelho não guarda offline. NÃO feche o app até confirmar."
+            :"📴 Salvo no aparelho — envia quando houver conexão.")
       :"⚠️ Inspeção registrada, mas a FOTO ainda não subiu. Confira o registro depois — pode ser preciso anexar de novo.");
   }catch(e){console.error(e);toast("Erro ao salvar: "+e.message);}
   $("btnSalvar").disabled=false;$("btnSalvar").textContent="Salvar inspeção";};
@@ -3596,9 +3641,25 @@ window.confereNumeroUnico=(seqAtual,num)=>{
   return confirm("\u26a0\uFE0F O cilindro N\u00ba "+n+" j\u00e1 consta em:\n\n"+onde
     +"\n\nUm mesmo cilindro em duas posi\u00e7\u00f5es faz a inspe\u00e7\u00e3o de uma contar pela outra, e a posi\u00e7\u00e3o que ningu\u00e9m inspecionou nunca aparece como pendente."
     +"\n\nSalvar assim mesmo?");};
-window.salvaEdEquip=(t,id)=>{
+window.salvaEdEquip=async(t,id)=>{
   if(t==="ext"&&!confereNumeroUnico(id,$("xNum").value.trim()))return;
-  if(t==="ext")CADX.extEdit[id]={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
+  if(t==="ext"){
+    const dados={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
+    CADX.extEdit[id]=dados;
+    /* aplicaOvr monta o cadastro nesta ordem: base -> extEdit -> OVR.
+       Como o OVR entra DEPOIS, ele sobrescrevia a edicao do admin: toda troca ou
+       verificacao grava num/fab/fabricante/man2/man3 no OVR daquela posicao, entao
+       corrigir uma data de manutencao nao surtia efeito nenhum na tela — o app
+       gravava certo, dizia "Cadastro atualizado!" e mostrava o valor antigo.
+       Aqui a edicao tambem entra no OVR, para as duas camadas concordarem.
+       Uma troca posterior continua mandando: ela reescreve o OVR de novo. */
+    const sq=String(id), atual=OVR[sq];
+    if(atual){
+      OVR[sq]={...atual,num:dados.num,fab:dados.fab,fabricante:dados.fabricante,man2:dados.man2,man3:dados.man3};
+      const okOvr=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[sq]:OVR[sq]}},{merge:true}));
+      if(!okOvr)toast("\u26a0\ufe0f A correcao ainda nao confirmou no sistema. Confira depois de recarregar.");
+    }
+  }
   else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
   salvaCADX("editar_equipamento",{t,id});};
 window.removeEquip=(t,id)=>{
