@@ -858,6 +858,17 @@ const isReserva=e=>/^\s*reserva/i.test(String(e?.loc||""));
    Sai desse estado pelo botão "Registrar retorno da recarga". */
 const emManutencao=e=>!!(e&&e.manut);
 
+/* ---------- Data de cadastro: desde quando o ponto entra na rota ----------
+   Todo equipamento cadastrado hoje aparecia como PENDENCIA em todos os meses ja
+   fechados: o extintor criado em 03/09 entrava na conta da inspecao de agosto e
+   virava uma falta que ninguem poderia ter evitado — o ponto nem existia. Agora
+   cada item criado guarda a data no campo "criado" (AAAA-MM-DD) e so entra na
+   rota do mes dessa data em diante. Item SEM a data e do cadastro original:
+   conta em todos os meses, como sempre contou (nao mexe em nada ja fechado). */
+const dataHoje=()=>new Date().toISOString().slice(0,10);
+const mesDeCriacao=e=>String((e&&e.criado)||"").slice(0,7);
+const jaExistiaEm=(e,pm)=>{const c=mesDeCriacao(e);return !c||!pm||c<=pm;};
+
 /* ================= Condenação de cilindros =================
    Um cilindro condenado continua no cadastro, mas o sistema para de oferecê-lo:
    some da troca por reserva, da verificação de local, dos vencimentos e da inspeção. */
@@ -1045,6 +1056,7 @@ function mostraPadrao(){
       Fabricação: <b>${fmtBR(EQ.fab)}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
       Próx. Man. 2º Nível: <b>${fmtBR(EQ.man2)}</b> · 3º Nível: <b>${fmtBR(EQ.man3)}</b>
+      ${EQ.criado?`<br><small style="color:var(--cinza)">Cadastrado em ${fmtBR(EQ.criado)} — entra na rota de ${String(EQ.criado).slice(5,7)}/${String(EQ.criado).slice(0,4)} em diante.</small>`:""}
       ${(()=>{ /* O inspetor confere o numero e, batendo, segue direto para a inspecao — entao
                     ele nunca veria que o mesmo numero consta em outra posicao. O app precisa dizer. */
         if(!EQ.num)return "";
@@ -1066,7 +1078,8 @@ function mostraPadrao(){
     :`<span class="lock">🔒 padrão travado</span>Patrimônio: <b>${esc(String(EQ.pat))}</b> · Tipo: <b>${esc(String(EQ.tipo??"—"))}</b> · Capacidade: <b>${esc(String(EQ.cap??"—"))}</b><br>
       Fabricação: <b>${esc(String(EQ.fab??"—"))}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
-      Próx. Manutenção: <b>${fmtBR(EQ.man)}</b> · Próx. T. Hidrostático: <b>${fmtBR(EQ.th)}</b>${acoes}`;
+      Próx. Manutenção: <b>${fmtBR(EQ.man)}</b> · Próx. T. Hidrostático: <b>${fmtBR(EQ.th)}</b>
+      ${EQ.criado?`<br><small style="color:var(--cinza)">Cadastrado em ${fmtBR(EQ.criado)} — entra na rota de ${String(EQ.criado).slice(5,7)}/${String(EQ.criado).slice(0,4)} em diante.</small>`:""}${acoes}`;
   ajustaCO2();};
 
 /* ---------- Reserva emprestada pela Engex (temporária, até o cilindro original retornar da manutenção) ---------- */
@@ -1697,7 +1710,7 @@ window.confirmaCorrecaoLocal=async()=>{
   if(dX.num&&!mesmoNumero){  /* o que constava aqui vira reserva */
     const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
     if(slot){OVR[String(slot.seq)]=dX;seqSlot=slot.seq;}
-    else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX});novaReserva=true;}
+    else{CADX.extAdd.push({seq:proxSeqReserva(),pat:null,agp:null,cgp:null,loc:"Reserva",...dX,criado:dataHoje()});novaReserva=true;}
   }
   /* {merge:true} NAO basta: com o mapa OVR inteiro no corpo, as 357 posicoes sao
      reescritas com o estado deste aparelho e o trabalho de quem mexeu no cadastro
@@ -2031,15 +2044,16 @@ window.render=()=>{
      Vagas de reserva ainda vazias (sem cilindro) não contam, e cilindros condenados também saem
      da rota — nenhum dos dois tem equipamento apto a ser inspecionado. O mesmo vale para
      o cilindro que saiu para recarga: enquanto está na Engex, não há o que inspecionar. */
-  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
-  const tot=extRota.length+CAD.hid.length;
+  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e)&&jaExistiaEm(e,pm));
+  const hidRota=CAD.hid.filter(h=>jaExistiaEm(h,pm));
+  const tot=extRota.length+hidRota.length;
   $("kInsp").textContent=inspEq.size;
   $("kPend").textContent=Math.max(0,tot-inspEq.size);
   $("kNC").textContent=mesArr.filter(i=>i.conformidade==="NC").length;
   $("kDiv").textContent=mesArr.filter(i=>i.divergencia).length;
   const pendExt=[],pendHid=[];
   extRota.forEach(e=>{if(!inspEq.has("ext_"+e.seq))pendExt.push({t:"ext",id:e.seq,lb:isReserva(e)?`🧯 Reserva (Nº ${e.num??"—"})`:`🧯 Ext ${e.seq} (Nº ${e.num??"—"})`,loc:e.loc||"Sem área"});});
-  CAD.hid.forEach(h=>{if(!inspEq.has("hid_"+h.seq))pendHid.push({t:"hid",id:h.pat,lb:`🚒 ${h.pat}`,loc:h.loc||"Sem área"});});
+  hidRota.forEach(h=>{if(!inspEq.has("hid_"+h.seq))pendHid.push({t:"hid",id:h.pat,lb:`🚒 ${h.pat}`,loc:h.loc||"Sem área"});});
   const pendTotal=pendExt.length+pendHid.length;
   const pct=tot?Math.round(100*inspEq.size/tot):0;
   const blocoRota=(lista,rotulo)=>{
@@ -2883,8 +2897,12 @@ window.laudoPDF=async()=>{
      percentual nem reaparece na secao 4. Os registros anteriores seguem intactos na
      aba Registros e no historico do equipamento. */
   const atual=[...ext,...hid];
-  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e));
-  const totPontos=extRota.length+CAD.hid.length;
+  const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e)&&jaExistiaEm(e,pm));
+  const hidRota=CAD.hid.filter(h=>jaExistiaEm(h,pm));
+  /* quantos pontos ficaram de fora por terem sido cadastrados depois deste mes */
+  const criadosDepois=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e)&&!jaExistiaEm(e,pm)).length
+    +CAD.hid.filter(h=>!jaExistiaEm(h,pm)).length;
+  const totPontos=extRota.length+hidRota.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
   const nc=atual.filter(i=>i.conformidade==="NC");
   const div=atual.filter(i=>i.divergencia);
@@ -2907,13 +2925,13 @@ window.laudoPDF=async()=>{
   /* pendências agrupadas por área */
   const pend={};
   extRota.forEach(e=>{if(!inspSet.has("ext_"+e.seq)){const a=normRota(e.loc);(pend[a]=pend[a]||[]).push(isReserva(e)?`Reserva${e.num?` (Nº ${e.num})`:""}`:`Ext ${e.seq}${e.num?` (Nº ${e.num})`:""}`);}});
-  CAD.hid.forEach(h=>{if(!inspSet.has("hid_"+h.seq)){const a=normRota(h.loc);(pend[a]=pend[a]||[]).push(`Hidrante ${h.pat}`);}});
+  hidRota.forEach(h=>{if(!inspSet.has("hid_"+h.seq)){const a=normRota(h.loc);(pend[a]=pend[a]||[]).push(`Hidrante ${h.pat}`);}});
 
   /* vencimentos */
   const vInst=[],vRes=[];
-  CAD.ext.forEach(e=>{[["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([r,d])=>{
+  CAD.ext.filter(e=>jaExistiaEm(e,pm)).forEach(e=>{[["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([r,d])=>{
     const dd=diasAte(d);if(dd!==null&&dd<=90)(isReserva(e)?vRes:vInst).push({q:isReserva(e)?`Reserva Nº ${e.num??"—"}`:`Ext ${e.seq} (Nº ${e.num??"—"})`,r,d,dd,loc:isReserva(e)?"Pool de reserva":(e.loc||"")});});});
-  CAD.hid.forEach(h=>{[["Manutenção",h.man],["T. Hidrostático",h.th]].forEach(([r,d])=>{
+  hidRota.forEach(h=>{[["Manutenção",h.man],["T. Hidrostático",h.th]].forEach(([r,d])=>{
     const dd=diasAte(d);if(dd!==null&&dd<=90)vInst.push({q:`Hidrante ${h.pat}`,r,d,dd,loc:h.loc||""});});});
   vInst.sort((a,b)=>a.dd-b.dd);vRes.sort((a,b)=>a.dd-b.dd);
 
@@ -3002,6 +3020,7 @@ window.laudoPDF=async()=>{
     </div>`).join(""):`<p class="vazio">Nenhuma não conformidade registrada no período.</p>`}
 
   <h2>5. Pendências do período (${totPontos-inspSet.size})</h2>
+  ${criadosDepois?`<p class="nota">${criadosDepois} equipamento(s) cadastrado(s) depois deste período não entram na rota nem nas pendências — passam a ser cobrados a partir do mês em que foram cadastrados.</p>`:""}
   ${(()=>{const rr=extRota.filter(e=>isReserva(e)),rp=rr.filter(e=>!inspSet.has("ext_"+e.seq));
     if(!rp.length)return "";
     return `<p class="nota" style="border-left-color:#b3261e;color:#b3261e"><b>${rp.length===rr.length?"Nenhum":`${rp.length} de ${rr.length}`} cilindro(s) do pool de reserva ${rp.length===rr.length?"foi inspecionado":"ficaram sem inspeção"} neste período.</b> Os cilindros de reserva entram na rota como os instalados — são eles que assumem o lugar quando um extintor vai para recarga.</p>`;})()}
@@ -3495,7 +3514,7 @@ window.salvaNovoLocal=async()=>{
   if(/^\s*reserva/i.test(loc))return toast('Um local não pode se chamar "Reserva" — esse nome é do pool de cilindros.');
   if(!cgp)return toast("Informe o padrão de carga (ex.: 6 Kg).");
   const novo={seq,num:null,tipo:null,carga:null,fab:null,fabricante:null,man2:null,man3:null,
-    agp:$("nlAgp").value,cgp,loc,pat:$("nlPat").value.trim()||seq};
+    agp:$("nlAgp").value,cgp,loc,pat:$("nlPat").value.trim()||seq,criado:dataHoje()};
   CADX.extAdd.push(novo);
   try{
     const okOvrNL=await alinhaOvrNovaPosicao(novo);
@@ -3580,7 +3599,7 @@ window.salvaNovoExt=async()=>{
   const loc=$("cLoc").value.trim()||"Reserva";
   const novo={num:$("cNum").value.trim()||null,pat:$("cPat").value.trim()||null,agp:$("cAgp").value,cgp:$("cCgp").value.trim()||null,
     tipo:$("cAgp").value,carga:$("cCgp").value.trim()||null,loc,fab:+$("cFab").value||null,fabricante:$("cFabr").value.trim()||null,
-    man2:$("cM2").value||null,man3:$("cM3").value||null};
+    man2:$("cM2").value||null,man3:$("cM3").value||null,criado:dataHoje()};
   const want=parseInt($("cSeq").value,10);
   const existe=want&&CAD.ext.find(x=>+x.seq===want);
   if(!want||!existe){
@@ -3624,7 +3643,7 @@ window.salvaNovoHid=()=>{
   const pat=$("cPat").value.trim();if(!pat)return toast("Informe o patrimônio.");
   const seq=Math.max(0,...CAD.hid.map(h=>+h.seq||0))+1;
   CADX.hidAdd.push({seq,pat,tipo:$("cTipo").value.trim()||null,cap:$("cCap").value.trim()||null,loc:$("cLoc").value.trim()||null,
-    fab:+$("cFab").value||null,fabricante:$("cFabr").value.trim()||null,man:$("cM2").value||null,th:$("cM3").value||null});
+    fab:+$("cFab").value||null,fabricante:$("cFabr").value.trim()||null,man:$("cM2").value||null,th:$("cM3").value||null,criado:dataHoje()});
   salvaCADX("novo_hidrante",{pat});};
 window.editarEquip=()=>{
   if(!ISADMIN)return;
@@ -3652,6 +3671,8 @@ window.abreEdicaoExtSeq=seq=>{
       <label>Localização</label><input id="xLoc" value="${esc(e.loc??"")}">
       <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(e.fab??"")}"></div><div><label>Fabricante</label><input id="xFabr" value="${esc(e.fabricante??"")}"></div></div>
       <div class="row"><div><label>Próx. Man. 2º Nível</label><input id="xM2" type="date" value="${e.man2||""}"></div><div><label>Próx. Man. 3º Nível</label><input id="xM3" type="date" value="${e.man3||""}"></div></div>
+      <label>Cadastrado em <small style="color:var(--cinza)">(em branco = já existia antes; só conta na rota deste mês em diante)</small></label>
+      <input id="xCriado" type="date" value="${e.criado||""}">
       <button class="btn" onclick="salvaEdEquip('ext','${e.seq}')">💾 Salvar</button>
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('ext','${e.seq}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
@@ -3664,6 +3685,8 @@ window.abreEdicaoHidPat=pat=>{
       <label>Localização</label><input id="xLoc" value="${esc(h.loc??"")}">
       <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(h.fab??"")}"></div><div><label>Fabricante</label><input id="xFabr" value="${esc(h.fabricante??"")}"></div></div>
       <div class="row"><div><label>Próx. Manutenção</label><input id="xM2" type="date" value="${h.man||""}"></div><div><label>Próx. T. Hidrostático</label><input id="xM3" type="date" value="${h.th||""}"></div></div>
+      <label>Cadastrado em <small style="color:var(--cinza)">(em branco = já existia antes; só conta na rota deste mês em diante)</small></label>
+      <input id="xCriado" type="date" value="${h.criado||""}">
       <button class="btn" onclick="salvaEdEquip('hid','${h.pat}')">💾 Salvar</button>
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('hid','${h.pat}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
@@ -3683,7 +3706,7 @@ window.confereNumeroUnico=(seqAtual,num)=>{
 window.salvaEdEquip=async(t,id)=>{
   if(t==="ext"&&!confereNumeroUnico(id,$("xNum").value.trim()))return;
   if(t==="ext"){
-    const dados={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
+    const dados={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null,criado:($("xCriado")&&$("xCriado").value)||null};
     CADX.extEdit[id]=dados;
     /* aplicaOvr monta o cadastro nesta ordem: base -> extEdit -> OVR.
        Como o OVR entra DEPOIS, ele sobrescrevia a edicao do admin: toda troca ou
@@ -3699,7 +3722,7 @@ window.salvaEdEquip=async(t,id)=>{
       if(!okOvr)toast("\u26a0\ufe0f A correcao ainda nao confirmou no sistema. Confira depois de recarregar.");
     }
   }
-  else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
+  else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null,criado:($("xCriado")&&$("xCriado").value)||null};
   salvaCADX("editar_equipamento",{t,id});};
 window.removeEquip=(t,id)=>{
   if(!confirm("Remover este equipamento do cadastro? As inspeções antigas dele continuam no histórico."))return;
@@ -3847,7 +3870,7 @@ window.processaLote=async modo=>{
           const ehReserva=!locRaw||/^\s*reserva/i.test(locRaw);
           const seqNovo=ehReserva?proxSeqReserva():proxSeqExt();
           const novoEq={seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
-            loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3};
+            loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3,criado:dataHoje()};
           /* idem: sem isto a linha importada some se o ID ja tiver sido removido */
           if(CADX.extDel&&CADX.extDel.length)
             CADX.extDel=CADX.extDel.filter(x=>String(x)!==String(seqNovo));
@@ -3894,7 +3917,7 @@ window.processaLote=async modo=>{
         if(modo==="add"){
           if(h){pulos.push(`linha ${rn}: ${pat} já cadastrado`);return;}
           CADX.hidAdd.push({seq:seqNext,pat,tipo:tipo||null,cap:cap||null,loc:locRaw||null,
-            fab:+fab||null,fabricante:fabr||null,man,th});
+            fab:+fab||null,fabricante:fabr||null,man,th,criado:dataHoje()});
           seqNext++;add++;
         }else{
           if(!h){pulos.push(`linha ${rn}: ${pat} não encontrado`);return;}
