@@ -3539,7 +3539,11 @@ const seqsComHistoricoExt=()=>{
   MOVS.forEach(m=>{if(m.posicao!=null)s.add(+m.posicao);});
   CONDS.forEach(c=>{if(c.seqOrigem!=null)s.add(+c.seqOrigem);});
   return s;};
-const seqsOcupadosExt=()=>new Set([...CAD.ext.map(e=>+e.seq||0),...CADX.extAdd.map(e=>+e.seq||0)]);
+/* extDel entra aqui para o "proximo ID livre" nao cair sozinho num ID removido:
+   quem quiser reaproveitar um ID removido informa o numero na mao, e ai a remocao
+   e desfeita de proposito (ver alinhaOvrNovaPosicao). */
+const seqsOcupadosExt=()=>new Set([...CAD.ext.map(e=>+e.seq||0),...CADX.extAdd.map(e=>+e.seq||0),
+  ...((CADX.extDel||[]).map(x=>+x||0))]);
 /* teto dos locais fixos: acima dele fica o pool de reserva */
 const tetoFixoExt=()=>Math.max(0,...CAD.ext.filter(e=>!isReserva(e)).map(e=>+e.seq||0));
 /* primeiro ID livre a partir de 1 (uso geral: novo local / novo extintor) */
@@ -3552,6 +3556,13 @@ const tetoFixoExt=()=>Math.max(0,...CAD.ext.filter(e=>!isReserva(e)).map(e=>+e.s
    equipamento recem-criado. Devolve false se a gravacao nao confirmou. */
 async function alinhaOvrNovaPosicao(novo){
   const sq=String(novo.seq);
+  /* aplicaOvr descarta todo item de extAdd cujo seq esteja em extDel. Como o ID de uma
+     posicao nova e escolhido olhando so CAD.ext e extAdd — sem olhar extDel — ela podia
+     cair num ID removido antes e ser descartada na montagem: o cadastro subia, a tela
+     dizia "Cadastro atualizado!" e o equipamento nunca aparecia. Recriar um ID tem de
+     desfazer a remocao dele. */
+  if(CADX.extDel&&CADX.extDel.length)
+    CADX.extDel=CADX.extDel.filter(x=>String(x)!==sq);
   if(!OVR[sq])return true;
   OVR[sq]={num:novo.num??null,tipo:novo.tipo??null,carga:novo.carga??null,
     fab:novo.fab??null,fabricante:novo.fabricante??null,man2:novo.man2??null,man3:novo.man3??null,
@@ -3837,6 +3848,9 @@ window.processaLote=async modo=>{
           const seqNovo=ehReserva?proxSeqReserva():proxSeqExt();
           const novoEq={seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
             loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3};
+          /* idem: sem isto a linha importada some se o ID ja tiver sido removido */
+          if(CADX.extDel&&CADX.extDel.length)
+            CADX.extDel=CADX.extDel.filter(x=>String(x)!==String(seqNovo));
           CADX.extAdd.push(novoEq);
           /* mesmo cuidado do cadastro individual: se o seq escolhido tiver override
              morto, o equipamento importado nasce com os dados do ocupante anterior */
