@@ -1083,7 +1083,7 @@ window.toggleEngex=async()=>{
     /* grava SO esta posicao. Antes regravava o mapa inteiro a partir da memoria:
        um aparelho com estado antigo (offline, por exemplo) apagava o trabalho dos outros. */
     const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
-    audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num});
+    audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num},okEngex);
     avisaGravacao(okEngex,ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
   }catch(e){toast("Erro ao salvar: "+e.message);}
 };
@@ -1708,10 +1708,13 @@ window.confirmaCorrecaoLocal=async()=>{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
     const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
     const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+      /* o registro de movimentacao tambem afirmava que a troca aconteceu mesmo quando
+         o cadastro nao confirmou — agora ele carrega o resultado junto */
+      cadastroConfirmado:okCad,
       posicao:EQ.seq,loc:EQ.loc||"",saiu:mesmoNumero?"—":(dX.num??"—"),entrou:dY.num,verificacao:true,
       duplicidade:mesmoNumero||null,limpouPosicao:mesmoNumero?ySeq:null,
       divergencia:!!ok,divergAceita:ok?ok.value:"",inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
-    audit("verificacao_local",{local:EQ.seq,entrou:dY.num,saiu:dX.num,localEsvaziado:yEraReserva?null:ySeq});
+    audit("verificacao_local",{local:EQ.seq,entrou:dY.num,saiu:dX.num,localEsvaziado:yEraReserva?null:ySeq},okCad&&okCadx&&okMov);
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
@@ -1784,6 +1787,7 @@ window.confirmaTroca=async()=>{
   try{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
     const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+      cadastroConfirmado:okCad,
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
@@ -1835,7 +1839,7 @@ window.confirmaRetornoRecarga=async()=>{
   OVR[seq]=novo;
   try{
     const okRet=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:novo}},{merge:true}));
-    audit("retorno_recarga",{seq,num,retorno:dt,man2:m2,man3:m3});
+    audit("retorno_recarga",{seq,num,retorno:dt,man2:m2,man3:m3},okRet);
     aplicaOvr();
     $("dlg").close();
     avisaGravacao(okRet,`✅ Nº ${num} voltou da recarga — disponível como reserva.`);
@@ -2515,7 +2519,7 @@ window.salvaEdicaoInspecao=async id=>{
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
     const okEd=await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
-    audit("editar_inspecao",{id,tipo:i.tipo});
+    audit("editar_inspecao",{id,tipo:i.tipo},okEd);
     $("dlg").close();avisaGravacao(okEd,"✅ Inspeção corrigida!");
   }catch(e){toast("Erro ao salvar: "+e.message);}};
 window.excluir=async id=>{
@@ -2525,7 +2529,7 @@ window.excluir=async id=>{
   try{const okDel=await comTimeout(deleteDoc(doc(db,"inspecoes",id)));$("dlg").close();
     avisaGravacao(okDel,"🗑️ Registro excluído.",
       "📴 Exclusão registrada no aparelho — só sai do sistema quando houver conexão. Confira depois.");
-    audit("excluir_inspecao",{id});}
+    audit("excluir_inspecao",{id},okDel);}
   catch(e){toast("Erro ao excluir: "+e.message);}};
 
 /* ---------- IA (Gemini) ---------- */
@@ -2658,7 +2662,7 @@ window.mudaPerfil=async(uid,perfil)=>{
   try{
     const okP=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil},{merge:true}));
     if(u)u.perfil=perfil;
-    audit("mudar_perfil",{email:u?.email||uid,perfil});
+    audit("mudar_perfil",{email:u?.email||uid,perfil},okP);
     if(auth.currentUser&&auth.currentUser.uid===uid){PERFIL=perfil;recalcAdmin();}
     pintaUsuarios();
     avisaGravacao(okP,`✅ ${u?.nome||"Usuário"} agora é ${PERFIS[perfil]}.`);
@@ -2672,7 +2676,7 @@ window.renomearUsuario=async uid=>{
   const antigo=String(u.nome||"").trim();
   try{
     const okN=await comTimeout(setDoc(doc(db,"usuarios",uid),{nome:novo},{merge:true}));
-    u.nome=novo;audit("renomear_usuario",{email:u.email||uid,de:antigo,para:novo});
+    u.nome=novo;audit("renomear_usuario",{email:u.email||uid,de:antigo,para:novo},okN);
     if(auth.currentUser&&auth.currentUser.uid===uid){NOME=novo;pintaUInfo();}
     pintaUsuarios();
     const qtd=antigo?ITENS.filter(i=>String(i.inspetor||"").trim()===antigo).length:0;
@@ -2707,7 +2711,7 @@ window.alternaAdmin=async uid=>{
       if(em&&!ADMINS.map(x=>String(x).toLowerCase()).includes(em))ADMINS.push(em);
       okA=await comTimeout(setDoc(doc(db,"usuarios",uid),{perfil:"admin"},{merge:true}));u.perfil="admin";}
     const okL=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
-    audit(eraAdm?"remover_admin":"novo_admin",{email:em});
+    audit(eraAdm?"remover_admin":"novo_admin",{email:em},okA&&okL);
     pintaUsuarios();
     avisaGravacao(okA&&okL,eraAdm?`☆ ${u.nome||em} não é mais administrador.`:`⭐ ${u.nome||em} agora é administrador.`);
   }catch(e){toast("Erro: "+e.message);}};
@@ -2741,7 +2745,7 @@ window.encerrarAcesso=async uid=>{
       ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==em);
       try{okAdmL=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));}
       catch(e){console.error("[admins]",e);okAdmL=false;}}
-    audit("encerrar_acesso",{email:em,nome:u.nome||""});
+    audit("encerrar_acesso",{email:em,nome:u.nome||""},okEnc&&okAdmL);
     fechaDlg();setTimeout(gerenciarUsuarios,120);
     avisaGravacao(okEnc&&okAdmL,`🚫 Acesso de ${u.nome||em} encerrado.`,
       `⚠️ O encerramento do acesso de ${u.nome||em} ainda NÃO foi confirmado no sistema. Confira a lista de usuários antes de considerar revogado.`);
@@ -2754,7 +2758,7 @@ window.reativarUsuario=async uid=>{
     const okReat=await comTimeout(setDoc(doc(db,"usuarios",uid),
       {perfil:"inspetor",reativadoPor:NOME||auth.currentUser.email,reativadoEm:Date.now()},{merge:true}));
     u.perfil="inspetor";
-    audit("reativar_acesso",{email:u.email||uid});
+    audit("reativar_acesso",{email:u.email||uid},okReat);
     pintaUsuarios();
     avisaGravacao(okReat,`↩️ ${u.nome||u.email} voltou como Inspetor. Ajuste o perfil se precisar.`);
   }catch(e){toast("Erro: "+e.message);}};
@@ -2777,14 +2781,14 @@ window.addAdmin=async()=>{
   if(!e||!e.includes("@"))return toast("Informe um e-mail válido.");
   if(!ADMINS.map(x=>String(x).toLowerCase()).includes(e))ADMINS.push(e);
   try{const okAd=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
-    audit("novo_admin",{email:e});gerenciarUsuarios();avisaGravacao(okAd,"✅ Admin adicionado!");}
+    audit("novo_admin",{email:e},okAd);gerenciarUsuarios();avisaGravacao(okAd,"✅ Admin adicionado!");}
   catch(err){toast("Erro: "+err.message);}};
 window.remAdmin=async e=>{
   if(!podeGravar())return;
   if(!confirm("Remover "+e+" dos administradores?"))return;
   ADMINS=ADMINS.filter(x=>String(x).toLowerCase()!==String(e).toLowerCase());
   try{const okRm=await comTimeout(setDoc(doc(db,"config","admins"),{emails:ADMINS}));
-    audit("remover_admin",{email:e});gerenciarUsuarios();avisaGravacao(okRm,"Removido.");}
+    audit("remover_admin",{email:e},okRm);gerenciarUsuarios();avisaGravacao(okRm,"Removido.");}
   catch(err){toast("Erro: "+err.message);}};
 
 /* ---------- Auditoria ---------- */
@@ -2792,9 +2796,16 @@ window.remAdmin=async e=>{
    de gravacao da trilha (regra, rede, cota) era descartada sem deixar rastro nenhum.
    Agora fica no console e num contador que o admin ve na tela de auditoria. */
 window._AUDIT_FALHAS=[];
-function audit(acao,det){
+/* O terceiro parametro e o retorno do comTimeout da gravacao principal. Sem ele a
+   trilha registrava a acao mesmo quando o cadastro nao tinha confirmado — mostrando
+   nove acoes como se tivessem valido, sem nenhuma marca de que ficaram pendentes.
+   Nao deixamos de registrar: registrar so o que confirmou perderia acoes que sobem
+   depois. Registra tudo, e diz quais ainda nao confirmaram. */
+function audit(acao,det,ok){
   try{
-    const pr=addDoc(collection(db,"auditoria"),{acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()});
+    const reg={acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()};
+    if(ok===false)reg.confirmado=false;
+    const pr=addDoc(collection(db,"auditoria"),reg);
     if(pr&&pr.catch)pr.catch(e=>{
       console.error("[auditoria] nao gravou:",acao,e);
       window._AUDIT_FALHAS.push({acao,quando:Date.now(),erro:String(e&&e.code||e&&e.message||e)});});
@@ -2839,7 +2850,7 @@ window.verAuditoria=async()=>{
       ${falhas.slice(-5).map(f=>`${esc(f.acao)} — ${esc(f.erro)}`).join("<br>")}
       <br><small>A lista abaixo está incompleta. Recarregue e refaça se precisar de trilha completa.</small></div>`:"";
   $("dlgBody").innerHTML=`<h3>🕵️ Trilha de auditoria</h3>${aviso}<div style="font-size:12.5px;line-height:1.7;max-height:60vh;overflow:auto;margin-top:10px">`+
-    (rows.length?rows.map(r=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0"><b>${esc(r.acao)}</b> — ${esc(r.nome||r.email)}<br><small style="color:var(--cinza)">${new Date(r.em).toLocaleString("pt-BR")}${r.det?" · "+esc(JSON.stringify(r.det)).slice(0,140):""}</small></div>`).join(""):"Sem eventos registrados.")+
+    (rows.length?rows.map(r=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0${r.confirmado===false?";background:#fdecea":""}"><b>${esc(r.acao)}</b> — ${esc(r.nome||r.email)}${r.confirmado===false?` <b style="color:var(--nc)">⚠️ não confirmado no sistema</b>`:""}<br><small style="color:var(--cinza)">${new Date(r.em).toLocaleString("pt-BR")}${r.det?" · "+esc(JSON.stringify(r.det)).slice(0,140):""}</small></div>`).join(""):"Sem eventos registrados.")+
     `</div><button class="btn sec" onclick="dlg.close()">Fechar</button>`;
   $("dlg").showModal();};
 
@@ -3408,7 +3419,7 @@ window.salvaCondenacao=async()=>{
     registradoPor:NOME||auth.currentUser.email,criadoEm:Date.now(),ativo:true};
   try{
     const gravou=await comTimeout(addDoc(collection(db,"condenacoes"),doc0));
-    audit("condenar",`Nº ${num} · ${motivo} · relatório ${relatorio} · ${ondeEsta}`);
+    audit("condenar",`Nº ${num} · ${motivo} · relatório ${relatorio} · ${ondeEsta}`,gravou);
     fechaDlg();
     if(!gravou)return toast(`\u{1F4F4} Condena\u00e7\u00e3o do N\u00ba ${num} salva no aparelho - envia quando houver conex\u00e3o.`);
     toast(arqFoto&&!foto
@@ -3431,7 +3442,7 @@ window.desfazerCondenacao=async(id)=>{
   try{
     const okDesf=await comTimeout(updateDoc(doc(db,"condenacoes",id),
       {ativo:false,desfeitoPor:NOME||auth.currentUser.email,desfeitoEm:Date.now()}));
-    audit("desfazer-condenacao",`Nº ${c.num} · relatório ${c.relatorio||"—"}`);
+    audit("desfazer-condenacao",`Nº ${c.num} · relatório ${c.relatorio||"—"}`,okDesf);
     fechaDlg();avisaGravacao(okDesf,`↩️ Condenação do Nº ${c.num} desfeita.`);
   }catch(e){toast("Erro ao desfazer: "+e.message);}};
 
@@ -3439,7 +3450,7 @@ window.desfazerCondenacao=async(id)=>{
 async function salvaCADX(acao,det){
   if(!podeGravar())return;
   try{const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
-    aplicaOvr();audit(acao,det);$("dlg").close();avisaGravacao(okCadx,"✅ Cadastro atualizado!");}
+    aplicaOvr();audit(acao,det,okCadx);$("dlg").close();avisaGravacao(okCadx,"✅ Cadastro atualizado!");}
   catch(e){toast("Erro: "+e.message);}}
 /* ---------- Novo local (posição vazia, sem cilindro) ----------
    Cria só a posição: ID, descrição da localização e o padrão de agente/carga.
@@ -3487,8 +3498,9 @@ window.salvaNovoLocal=async()=>{
     agp:$("nlAgp").value,cgp,loc,pat:$("nlPat").value.trim()||seq};
   CADX.extAdd.push(novo);
   try{
-    const okNL=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
-    aplicaOvr();audit("novo_local",{seq,loc,padrao:`${novo.agp} ${cgp}`});
+    const okOvrNL=await alinhaOvrNovaPosicao(novo);
+    const okNL=(await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)))&&okOvrNL;
+    aplicaOvr();audit("novo_local",{seq,loc,padrao:`${novo.agp} ${cgp}`},okNL);
     try{render();}catch(e){}
     $("dlg").close();
     avisaGravacao(okNL,`📍 Local ${seq} criado — ${loc}. Imprima a etiqueta QR e verifique o cilindro em campo.`);
@@ -3531,6 +3543,20 @@ const seqsOcupadosExt=()=>new Set([...CAD.ext.map(e=>+e.seq||0),...CADX.extAdd.m
 /* teto dos locais fixos: acima dele fica o pool de reserva */
 const tetoFixoExt=()=>Math.max(0,...CAD.ext.filter(e=>!isReserva(e)).map(e=>+e.seq||0));
 /* primeiro ID livre a partir de 1 (uso geral: novo local / novo extintor) */
+/* O mapa "overrides" guarda TODA posicao ja tocada, inclusive as que foram removidas
+   do cadastro — sao mais de uma centena de registros mortos. Como o seq de uma posicao
+   nova e escolhido olhando so CAD.ext e extAdd, ela pode cair exatamente num desses
+   seq sujos. E como o OVR e aplicado por ultimo em aplicaOvr, o equipamento novo
+   nascia com o numero, as datas e ate a marcacao de manutencao do ocupante anterior —
+   parecendo que o cadastro "nao subiu". Aqui a camada de override e alinhada com o
+   equipamento recem-criado. Devolve false se a gravacao nao confirmou. */
+async function alinhaOvrNovaPosicao(novo){
+  const sq=String(novo.seq);
+  if(!OVR[sq])return true;
+  OVR[sq]={num:novo.num??null,tipo:novo.tipo??null,carga:novo.carga??null,
+    fab:novo.fab??null,fabricante:novo.fabricante??null,man2:novo.man2??null,man3:novo.man3??null,
+    manut:null,manutDesde:null,manutDe:null,manutLoc:null,engex:null,engexDesde:null};
+  return await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[sq]:OVR[sq]}},{merge:true}));}
 const proxSeqExt=()=>{
   const usados=seqsOcupadosExt(),hist=seqsComHistoricoExt();
   let n=1;while(usados.has(n)||hist.has(n))n++;return n;};
@@ -3549,6 +3575,8 @@ window.salvaNovoExt=async()=>{
   if(!want||!existe){
     novo.seq=want||(isReserva(novo)?proxSeqReserva():proxSeqExt());if(!novo.pat)novo.pat=novo.seq;
     CADX.extAdd.push(novo);
+    if(!await alinhaOvrNovaPosicao(novo))
+      toast("\u26a0\ufe0f O cadastro do local ainda n\u00e3o confirmou no sistema. Confira depois de recarregar.");
     return salvaCADX("novo_extintor",{seq:novo.seq,num:novo.num});}
   /* ID já existe: insere neste ponto e renumera os locais seguintes (+1).
      Renumerar mexe nas etiquetas físicas de vários locais — fica só com o administrador. */
@@ -3641,9 +3669,25 @@ window.confereNumeroUnico=(seqAtual,num)=>{
   return confirm("\u26a0\uFE0F O cilindro N\u00ba "+n+" j\u00e1 consta em:\n\n"+onde
     +"\n\nUm mesmo cilindro em duas posi\u00e7\u00f5es faz a inspe\u00e7\u00e3o de uma contar pela outra, e a posi\u00e7\u00e3o que ningu\u00e9m inspecionou nunca aparece como pendente."
     +"\n\nSalvar assim mesmo?");};
-window.salvaEdEquip=(t,id)=>{
+window.salvaEdEquip=async(t,id)=>{
   if(t==="ext"&&!confereNumeroUnico(id,$("xNum").value.trim()))return;
-  if(t==="ext")CADX.extEdit[id]={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
+  if(t==="ext"){
+    const dados={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null};
+    CADX.extEdit[id]=dados;
+    /* aplicaOvr monta o cadastro nesta ordem: base -> extEdit -> OVR.
+       Como o OVR entra DEPOIS, ele sobrescrevia a edicao do admin: toda troca ou
+       verificacao grava num/fab/fabricante/man2/man3 no OVR daquela posicao, entao
+       corrigir uma data de manutencao nao surtia efeito nenhum na tela — o app
+       gravava certo, dizia "Cadastro atualizado!" e mostrava o valor antigo.
+       Aqui a edicao tambem entra no OVR, para as duas camadas concordarem.
+       Uma troca posterior continua mandando: ela reescreve o OVR de novo. */
+    const sq=String(id), atual=OVR[sq];
+    if(atual){
+      OVR[sq]={...atual,num:dados.num,fab:dados.fab,fabricante:dados.fabricante,man2:dados.man2,man3:dados.man3};
+      const okOvr=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[sq]:OVR[sq]}},{merge:true}));
+      if(!okOvr)toast("\u26a0\ufe0f A correcao ainda nao confirmou no sistema. Confira depois de recarregar.");
+    }
+  }
   else CADX.hidEdit[id]={tipo:$("xAgp").value.trim()||null,cap:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man:$("xM2").value||null,th:$("xM3").value||null};
   salvaCADX("editar_equipamento",{t,id});};
 window.removeEquip=(t,id)=>{
@@ -3767,6 +3811,11 @@ window.processaLote=async modo=>{
     const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());
     const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
     let add=0,edit=0,rem=0;const pulos=[];
+    /* Mesma armadilha da edicao individual: o OVR e aplicado DEPOIS do extEdit, entao
+       corrigir num/fab/fabricante/man2/man3 pela planilha nao surtia efeito nenhum nas
+       posicoes que ja tem override — e quase toda posicao fixa tem. Aqui as posicoes
+       tocadas sao juntadas para subirem tambem no cadastroExt. */
+    const patchOvr={};
     const querRemover=v=>/^(s|sim|x)$/i.test(cellStr(v));
     /* extintor: o ID é alocado linha a linha (ver adiante). Hidrante segue o esquema antigo. */
     let seqNext=tq==="ext"?0
@@ -3786,8 +3835,16 @@ window.processaLote=async modo=>{
              anteriores deste mesmo lote, então não há colisão ao reaproveitar vãos */
           const ehReserva=!locRaw||/^\s*reserva/i.test(locRaw);
           const seqNovo=ehReserva?proxSeqReserva():proxSeqExt();
-          CADX.extAdd.push({seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
-            loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3});
+          const novoEq={seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
+            loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3};
+          CADX.extAdd.push(novoEq);
+          /* mesmo cuidado do cadastro individual: se o seq escolhido tiver override
+             morto, o equipamento importado nasce com os dados do ocupante anterior */
+          if(OVR[String(seqNovo)]){
+            OVR[String(seqNovo)]={num:novoEq.num,tipo:novoEq.tipo,carga:novoEq.carga,fab:novoEq.fab,
+              fabricante:novoEq.fabricante,man2:novoEq.man2??null,man3:novoEq.man3??null,
+              manut:null,manutDesde:null,manutDe:null,manutLoc:null,engex:null,engexDesde:null};
+            patchOvr[String(seqNovo)]=OVR[String(seqNovo)];}
           add++;
         }else{
           const seq=cellStr(row.getCell(1).value);
@@ -3807,6 +3864,10 @@ window.processaLote=async modo=>{
           if(fab)nv.fab=+fab||null;if(fabr)nv.fabricante=fabr;if(man2)nv.man2=man2;if(man3)nv.man3=man3;
           if(!Object.keys(nv).some(k=>String(nv[k]??"")!==String(e[k]??"")))return;
           CADX.extEdit[String(seq)]={...(CADX.extEdit[String(seq)]||{}),...nv};edit++;
+          {const sq=String(seq),atual=OVR[sq];
+           if(atual){
+             const mudou={};["num","fab","fabricante","man2","man3"].forEach(k=>{if(k in nv)mudou[k]=nv[k];});
+             if(Object.keys(mudou).length){OVR[sq]={...atual,...mudou};patchOvr[sq]=OVR[sq];}}}
         }
       }else{
         const v=i=>cellStr(row.getCell(i).value);
@@ -3836,11 +3897,13 @@ window.processaLote=async modo=>{
       }});
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
     if(modo==="edit"&&!edit&&!rem)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
+    const nOvr=Object.keys(patchOvr).length;
+    const okOvr=nOvr?await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true})):true;
     const okImp=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();
-    audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)});
+    audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)},okImp);
     $("dlg").close();
-    avisaGravacao(okImp,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
+    avisaGravacao(okImp&&okOvr,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
   }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Export Excel (idêntico ao modelo) ---------- */
