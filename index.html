@@ -316,6 +316,8 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <select id="flMes" onchange="resetLista()" aria-label="Filtrar por mês"><option value="">Mês: todos</option></select>
  <select id="flTipo" onchange="resetLista()" aria-label="Filtrar por tipo"><option value="">Tipo: todos</option><option value="ext">Extintores</option><option value="hid">Hidrantes</option></select>
  <select id="flConf" onchange="resetLista()" aria-label="Filtrar por conformidade"><option value="">Conformidade: todas</option><option>C</option><option>NC</option></select>
+ <select id="flInsp" onchange="resetLista()" aria-label="Filtrar por inspetor"><option value="">Inspetor: todos</option></select>
+ <select id="flOrd" onchange="resetLista()" aria-label="Ordem da lista"><option value="loc">Ordem: local (menor → maior)</option><option value="rec">Ordem: mais recentes primeiro</option></select>
  <input id="flBusca" placeholder="Buscar nº, patrimônio, local ou relatório…" oninput="resetLista()" aria-label="Buscar nos registros">
  </div>
  <div id="listaResumo" class="hint" style="color:var(--cinza);text-align:left;margin:-4px 0 10px"></div>
@@ -404,9 +406,12 @@ details.dobra .dobraIn{padding:0 18px 18px}
 
  <!-- ---------- Relatórios ---------- -->
  <div id="pRel" class="hidden">
+ <div class="filters">
+ <select id="rMes" onchange="mudaMesRel()" aria-label="Mês do relatório"></select>
+ </div>
  <div class="card">
  <b>⬇️ Exportar relatório Excel</b>
- <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Gera o relatório no padrão Engex do mês selecionado em <b>Resumo</b>, com as colunas de padrão (cinza) travadas e as assinaturas dos inspetores no final.</p>
+ <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Gera o relatório no padrão Engex do mês escolhido acima, com as colunas de padrão (cinza) travadas e as assinaturas dos inspetores no final.</p>
  <div class="btngrid">
  <button class="btn sec" onclick="exportXLSX('ext')">⬇️ Relatório de Extintores</button>
  <button class="btn sec" onclick="exportXLSX('hid')">⬇️ Relatório de Hidrantes</button>
@@ -415,7 +420,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </div>
  <div class="card">
  <b>📄 Laudo mensal (PDF)</b>
- <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Documento de apresentação do mês selecionado: resumo de conformidade, inspeções realizadas, não conformidades com foto, pendências, vencimentos, condenações do mês e assinaturas. Abre a janela de impressão — escolha <b>"Salvar como PDF"</b>.</p>
+ <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Documento de apresentação do mês escolhido acima: resumo de conformidade, inspeções realizadas, não conformidades com foto, pendências, vencimentos, condenações do mês e assinaturas. Abre a janela de impressão — escolha <b>"Salvar como PDF"</b>.</p>
  <div class="btngrid">
  <button class="btn" onclick="laudoPDF()">📄 Gerar laudo do mês</button>
  <button class="btn sec" onclick="window.print()">🖨️ Imprimir a tela</button>
@@ -505,7 +510,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
 /* ======== MODO TESTE — LE DADOS REAIS, GRAVA EM COPIAS teste_* ========
@@ -1121,6 +1126,8 @@ window.acoesEquip=()=>{
     L.push(`<button class="btn sec" onclick="${ir(`()=>historicoCilindro(${arg(EQ.num)})`)}">🕘 Histórico do cilindro Nº ${esc(String(EQ.num))}</button>`);
   if(ISADMIN)
     L.push(`<button class="btn sec" onclick="${ir("editarEquipAtual")}">✏️ Editar cadastro (admin)</button>`);
+  if(ext&&ISADMIN)
+    L.push(`<button class="btn sec" onclick="${ir("alterarIdLocal")}">🔢 Corrigir o ID do local</button>`);
   if(ext&&ISADMIN&&EQ.num&&!cd)
     L.push(`<button class="btn" style="background:var(--cd)" onclick="${ir(`()=>abrirCondenacao(${arg(EQ.num)})`)}">⛔ Condenar cilindro</button>`);
   if(ext&&ISADMIN&&cd)
@@ -1236,7 +1243,12 @@ function fillMeses(){
   /* mesmo seletor em Registros, com a opção "todos" na frente (ajuste D) */
   const fl=$("flMes");
   if(fl)fl.innerHTML=`<option value="">Mês: todos</option>`
-    +out.map(m=>`<option value="${m}">${m.split("-").reverse().join("/")}</option>`).join("");}
+    +out.map(m=>`<option value="${m}">${m.split("-").reverse().join("/")}</option>`).join("");
+  /* O laudo e o Excel sempre sairam do mes escolhido la no Resumo — quem abria
+     direto a aba Relatorios emitia o mes errado sem perceber. Agora a aba tem o
+     proprio seletor; os dois apontam para o mesmo mes, mudar um muda o outro. */
+  const rm=$("rMes");
+  if(rm)rm.innerHTML=out.map(m=>`<option value="${m}">${m.split("-").reverse().join("/")}</option>`).join("");}
 fillMeses();
 
 /* ---------- Auth ---------- */
@@ -1992,22 +2004,59 @@ window.exportEquipXLSX=async()=>{
   toast("✅ Planilha gerada!");};
 
 let LIST_N=30;
-window.mudaMesPainel=async()=>{await garanteMes($("pMes").value);render();};
+window.mudaMesPainel=async()=>{
+  const m=$("pMes").value;
+  if($("rMes"))$("rMes").value=m;
+  await garanteMes(m);render();};
+/* mesmo mes, escolhido do outro lado */
+window.mudaMesRel=async()=>{
+  const m=$("rMes").value;
+  if($("pMes"))$("pMes").value=m;
+  await garanteMes(m);render();};
 window.resetLista=async()=>{await garanteMes($("flMes")?$("flMes").value:"");LIST_N=30;render();};
 window.maisLista=()=>{LIST_N+=30;render();};
+/* A lista de inspetores sai dos proprios registros: nao ha cadastro fixo de quem
+   inspeciona, e um inspetor novo tem de aparecer no filtro sem ninguem configurar
+   nada. Segue o mes escolhido — oferecer quem nao trabalhou naquele mes so daria
+   lista vazia. Se o inspetor selecionado sumir da lista, o filtro volta a "todos". */
+function atualizaFiltroInspetor(fmes){
+  const sel=$("flInsp");if(!sel)return "";
+  const nomes=[...new Set(ITENS.filter(i=>!fmes||i.mes===fmes).map(i=>i.inspetor).filter(Boolean))]
+    .sort((a,b)=>String(a).localeCompare(String(b),"pt-BR"));
+  const escolhido=sel.value;
+  const html=`<option value="">Inspetor: todos</option>`
+    +nomes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  if(sel.innerHTML!==html){sel.innerHTML=html;sel.value=nomes.includes(escolhido)?escolhido:"";}
+  return sel.value;}
 window.render=()=>{
   const ft=$("flTipo").value,fc=$("flConf").value,fb2=$("flBusca").value.toLowerCase();
   const fmes=$("flMes")?$("flMes").value:"";
+  const fin=atualizaFiltroInspetor(fmes);
+  const ford=$("flOrd")?$("flOrd").value:"loc";
   /* a busca também aceita o nº do relatório da Engex que condenou aquele cilindro (ajuste C) */
   const relDe=i=>{const c=i.tipo==="ext"?condDe(i.eqNum):null;return c?`${c.relatorio||""} ${c.motivo||""}`:"";};
+  /* Ordem da lista. O padrao passa a ser a ordem da rota — do menor ID para o maior —
+     porque e assim que o inspetor caminha pela fabrica e assim que a conferencia do mes
+     e feita; a ordem por data servia para ver o que acabou de ser gravado, e continua
+     disponivel na segunda opcao. Extintores primeiro, hidrantes depois. */
+  const ordena=a=>a.sort((x,y)=>
+    (x.tipo===y.tipo?0:(x.tipo==="ext"?-1:1))
+    ||((+x.eqSeq||0)-(+y.eqSeq||0))
+    ||String(y.data||"").localeCompare(String(x.data||"")));
   const arr=ITENS.filter(i=>(!ft||i.tipo===ft)&&(!fc||i.conformidade===fc)&&(!fmes||i.mes===fmes)&&
+    (!fin||String(i.inspetor||"")===fin)&&
     (!fb2||`${i.eqNum} ${i.eqPat} ${i.eqLoc} ${i.obs} ${relDe(i)}`.toLowerCase().includes(fb2)));
+  if(ford==="rec")arr.sort((x,y)=>(y.criadoEm||0)-(x.criadoEm||0));else ordena(arr);
   const resumoEl=$("listaResumo");
   if(resumoEl)resumoEl.innerHTML=ITENS.length
     ?`${arr.length} registro${arr.length===1?"":"s"}${fmes?` em ${mesExtenso(fmes)}`:""}`
       +` · ${arr.filter(i=>i.conformidade==="NC").length} não conforme(s)`
       +(arr.filter(i=>i.tipo==="ext"&&condDe(i.eqNum)).length
         ?` · ${arr.filter(i=>i.tipo==="ext"&&condDe(i.eqNum)).length} de cilindro condenado depois`:"")
+      /* quanto cada inspetor fez no recorte atual — some quando ha um so nome */
+      +(()=>{const c={};arr.forEach(i=>{const n=i.inspetor||"sem nome";c[n]=(c[n]||0)+1;});
+        const ns=Object.keys(c).sort((a,b)=>c[b]-c[a]||a.localeCompare(b,"pt-BR"));
+        return ns.length>1?`<br>Por inspetor: ${ns.map(n=>`${esc(n)} (${c[n]})`).join(" · ")}`:"";})()
     :"";
   $("lista").innerHTML=(arr.length?arr.slice(0,LIST_N).map(i=>{
     const id=i.tipo==="ext"?`Nº ${i.eqNum??i.eqSeq}`:i.eqPat;
@@ -3645,6 +3694,110 @@ window.salvaNovoHid=()=>{
   CADX.hidAdd.push({seq,pat,tipo:$("cTipo").value.trim()||null,cap:$("cCap").value.trim()||null,loc:$("cLoc").value.trim()||null,
     fab:+$("cFab").value||null,fabricante:$("cFabr").value.trim()||null,man:$("cM2").value||null,th:$("cM3").value||null,criado:dataHoje()});
   salvaCADX("novo_hidrante",{pat});};
+/* ---------- Corrigir o ID (numero do local) de um extintor ----------
+   O ID e o numero da etiqueta. Quando a posicao nasce com o numero errado — foi o
+   caso do EXT 226, que deveria ser 221 — a unica saida era "inserir e renumerar",
+   que empurra +1 em todos os locais seguintes e obriga a reimprimir dezenas de
+   etiquetas. Aqui troca-se SO este local; nenhum outro muda.
+   TRAVA: nem o ID atual nem o novo podem ter historico gravado (inspecao,
+   movimentacao ou condenacao). Sem isso, mudar o ID separaria o equipamento do
+   proprio historico, ou faria dois cilindros diferentes dividirem o mesmo. */
+/* seqsOcupadosExt inclui os IDs removidos (extDel) de proposito, para a escolha
+   AUTOMATICA do proximo ID nao cair num deles. Aqui o ID e informado na mao, e
+   reaproveitar um ID removido e legitimo — igual ao cadastro individual, que
+   desfaz a remocao. So o historico trava de verdade. */
+const seqsEmUsoExt=()=>new Set([...CAD.ext.map(e=>+e.seq||0),...CADX.extAdd.map(e=>+e.seq||0)]);
+const idsLivresParaId=()=>{
+  const usados=seqsEmUsoExt(),hist=seqsComHistoricoExt();
+  const teto=Math.max(1,...CAD.ext.map(e=>+e.seq||0))+3;
+  const livres=[];
+  for(let n=1;n<=teto;n++)if(!usados.has(n)&&!hist.has(n))livres.push(n);
+  return livres;};
+window.alterarIdLocal=()=>{
+  if(!ISADMIN)return toast("Apenas o administrador pode alterar o ID do local.");
+  if(!EQ||TIPO!=="ext")return toast("Abra um extintor para alterar o ID.");
+  const atual=String(EQ.seq);
+  const nInsp=ITENS.filter(i=>i.tipo==="ext"&&String(i.eqSeq)===atual).length;
+  const nMov=MOVS.filter(m=>String(m.posicao)===atual).length;
+  const nCond=CONDS.filter(c=>String(c.seqOrigem)===atual).length;
+  if(seqsComHistoricoExt().has(+atual))
+    return _dlgAbre(`<h3>\uD83D\uDD22 Corrigir o ID do local</h3>
+      <p style="font-size:13px;line-height:1.6">O ID <b>${atual}</b> j\u00e1 tem hist\u00f3rico gravado:
+      <b>${nInsp}</b> inspe\u00e7\u00e3o(\u00f5es), <b>${nMov}</b> movimenta\u00e7\u00e3o(\u00f5es) e <b>${nCond}</b> condena\u00e7\u00e3o(\u00f5es).</p>
+      <p style="font-size:13px;line-height:1.6">Trocar o n\u00famero agora deixaria esses registros apontando
+      para um local que n\u00e3o existe mais \u2014 o hist\u00f3rico ficaria \u00f3rf\u00e3o. Por isso o app s\u00f3 permite
+      corrigir o ID de posi\u00e7\u00f5es que ainda n\u00e3o foram usadas.</p>
+      <p style="font-size:13px;line-height:1.6">Se a etiqueta est\u00e1 errada em campo, o caminho seguro \u00e9
+      reimprimir a etiqueta com o ID <b>${atual}</b>, que \u00e9 o que o hist\u00f3rico j\u00e1 registra.</p>`);
+  const livres=idsLivresParaId();
+  $("dlgBody").innerHTML=`<h3>\uD83D\uDD22 Corrigir o ID do local</h3>
+    <p style="font-size:13px;color:var(--cinza);line-height:1.6">Hoje este equipamento est\u00e1 no
+      <b>ID ${atual}</b>${EQ.num?` \u2014 cilindro N\u00ba ${esc(String(EQ.num))}`:""}.
+      Nenhum outro local \u00e9 renumerado: s\u00f3 a etiqueta <b>deste</b> local precisa ser reimpressa.</p>
+    <label>Novo ID</label>
+    <input id="mvNovo" type="number" min="1" placeholder="ex.: 221">
+    <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 2px">IDs livres:
+      ${livres.length?esc(livres.slice(0,40).join(", "))+(livres.length>40?"\u2026":""):"nenhum"}</p>
+    <button class="btn" onclick="confirmaAlteraId()">\uD83D\uDCBE Trocar o ID</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("dlg").showModal();};
+window.confirmaAlteraId=async()=>{
+  if(!podeGravar())return;
+  if(!ISADMIN||!EQ||TIPO!=="ext")return;
+  const atual=String(EQ.seq), n=parseInt($("mvNovo").value,10), novo=String(n);
+  if(!n||n<1)return toast("Informe o novo ID.");
+  if(novo===atual)return toast("O novo ID \u00e9 igual ao atual.");
+  if(seqsComHistoricoExt().has(+atual))
+    return toast(`O ID ${atual} j\u00e1 tem hist\u00f3rico \u2014 n\u00e3o d\u00e1 para renome\u00e1-lo.`);
+  if(seqsEmUsoExt().has(n)){
+    const dono=CAD.ext.find(x=>String(x.seq)===novo);
+    return toast(`O ID ${novo} j\u00e1 est\u00e1 em uso${dono?` (${isReserva(dono)?"Reserva":"Ext "+novo}, N\u00ba ${dono.num??"\u2014"})`:""}. Livres: ${idsLivresParaId().slice(0,15).join(", ")||"nenhum"}.`);}
+  if(seqsComHistoricoExt().has(n))
+    return toast(`O ID ${novo} j\u00e1 teve equipamento com hist\u00f3rico gravado e n\u00e3o pode ser reaproveitado.`);
+  const base={...CAD.ext.find(x=>String(x.seq)===atual)};
+  if(base.seq==null)return toast("Equipamento n\u00e3o encontrado \u2014 recarregue a tela.");
+  if(!confirm(`Trocar o ID ${atual} por ${novo}?\n\n\u26a0\ufe0f A etiqueta DESTE local precisa ser reimpressa. Nenhum outro local \u00e9 renumerado.`))return;
+  /* copia de seguranca: se a grava\u00e7\u00e3o falhar, a tela nao pode ficar mostrando
+     uma troca que o servidor recusou */
+  const cadxAntes=JSON.parse(JSON.stringify(CADX)), ovrAntes={...OVR};
+  base.seq=n;
+  /* o patrimonio de posicoes novas nasce igual ao ID; se for esse o caso, acompanha */
+  if(String(base.pat??"")===atual)base.pat=n;
+  const eraAdd=CADX.extAdd.some(a=>String(a.seq)===atual);
+  CADX.extAdd=CADX.extAdd.filter(a=>String(a.seq)!==atual);
+  if(!eraAdd&&!CADX.extDel.map(String).includes(atual))CADX.extDel.push(atual);
+  if(CADX.extEdit[atual])delete CADX.extEdit[atual];
+  /* recriar um ID removido antes exige desfazer a remocao, senao aplicaOvr descarta */
+  CADX.extDel=CADX.extDel.filter(x=>String(x)!==novo);
+  CADX.extAdd.push(base);
+  /* overrides: o antigo sai de vez (senao vira registro morto e contamina quem
+     ocupar aquele ID depois); o novo passa a espelhar exatamente este equipamento */
+  const patch={};
+  patch[atual]=deleteField();
+  if(OVR[atual]||OVR[novo]){
+    OVR[novo]={num:base.num??null,tipo:base.tipo??null,carga:base.carga??null,fab:base.fab??null,
+      fabricante:base.fabricante??null,man2:base.man2??null,man3:base.man3??null,
+      manut:base.manut??null,manutDesde:base.manutDesde??null,manutDe:base.manutDe??null,
+      manutLoc:base.manutLoc??null,engex:base.engex??null,engexDesde:base.engexDesde??null};
+    patch[novo]=OVR[novo];}
+  delete OVR[atual];
+  try{
+    /* os dois documentos so fazem sentido juntos: a lista com o ID novo e o override
+       alinhado. Em gravacoes separadas, uma falha deixaria o equipamento no ID novo
+       com os dados do ocupante anterior. O lote grava os dois ou nenhum. */
+    const lote=writeBatch(db);
+    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    lote.set(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true});
+    await lote.commit();
+    aplicaOvr();
+    const achou=CAD.ext.find(x=>String(x.seq)===novo);
+    if(achou){EQ=achou;try{$("fBusca").value=labelEq(EQ);}catch(e){}mostraPadrao();}
+    audit("alterar_id_local",{de:+atual,para:n,num:base.num??null});
+    $("dlg").close();
+    toast(`\u2705 O local ${atual} agora \u00e9 o ${novo}. Reimprima a etiqueta deste local \u2014 nenhum outro foi alterado.`);
+  }catch(e){
+    CADX=cadxAntes;OVR=ovrAntes;aplicaOvr();
+    toast("Erro ao trocar o ID, nada foi alterado: "+e.message);}};
 window.editarEquip=()=>{
   if(!ISADMIN)return;
   $("dlgBody").innerHTML=`<h3>✏️ Editar / remover equipamento</h3>
@@ -3674,6 +3827,7 @@ window.abreEdicaoExtSeq=seq=>{
       <label>Cadastrado em <small style="color:var(--cinza)">(em branco = já existia antes; só conta na rota deste mês em diante)</small></label>
       <input id="xCriado" type="date" value="${e.criado||""}">
       <button class="btn" onclick="salvaEdEquip('ext','${e.seq}')">💾 Salvar</button>
+      <button class="btn sec" onclick="dlg.close();setTimeout(()=>{irPara('ext','${e.seq}');alterarIdLocal();},90)">🔢 Corrigir o ID do local (hoje ${e.seq})</button>
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('ext','${e.seq}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
     $("dlg").showModal();};
