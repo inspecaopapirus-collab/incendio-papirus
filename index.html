@@ -297,6 +297,10 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div><label>Registro do hidrante</label><select id="hReg"><option>C</option><option>NC</option><option>NA</option></select></div>
  <div><label>Outros</label><input id="hOutros"></div>
  </div>
+ <div class="row">
+ <div><label>Sinalização de solo</label><select id="hSinSolo"><option>C</option><option>NC</option><option>NA</option></select></div>
+ <div><label>Sinalização aérea</label><select id="hSinAerea"><option>C</option><option>NC</option><option>NA</option></select></div>
+ </div>
  </div>
 
  <label>Observações</label><textarea id="fObs" placeholder="Anote não conformidades e detalhes"></textarea>
@@ -1124,6 +1128,8 @@ window.acoesEquip=()=>{
   L.push(`<button class="btn sec" onclick="${ir("historicoEquip")}">📜 Histórico ${ext&&!isReserva(EQ)?"da posição":"do equipamento"}</button>`);
   if(ext&&EQ.num)
     L.push(`<button class="btn sec" onclick="${ir(`()=>historicoCilindro(${arg(EQ.num)})`)}">🕘 Histórico do cilindro Nº ${esc(String(EQ.num))}</button>`);
+  if(!ext&&ISADMIN)
+    L.push(`<button class="btn" style="background:#0284c7" onclick="${ir("testeHidrostatico")}">🚿 Registrar teste hidrostático</button>`);
   if(ISADMIN)
     L.push(`<button class="btn sec" onclick="${ir("editarEquipAtual")}">✏️ Editar cadastro (admin)</button>`);
   if(ext&&ISADMIN)
@@ -1148,10 +1154,13 @@ function buildChkExt(){
 /* Itens que NÃO derrubam a conformidade geral (a NC fica registrada no item) */
 const IGNORA_CONF=["Acesso","Sinalização","Sinalização de piso"];
 const calcConfExt=chk=>Object.entries(chk||{}).some(([k,v])=>v==="NC"&&!IGNORA_CONF.includes(k))?"NC":"C";
+/* Sinalização do hidrante segue a mesma regra do extintor: fica marcada como NC
+   no item, sem derrubar a conformidade geral do ponto. */
+const IGNORA_CONF_HID=["hSinSolo","hSinAerea"];
 window.confAuto=()=>{
   let nc=false,ncLeve=false;
   if(TIPO==="ext")CHK_EXT.forEach((c,i)=>{const el=$("ck"+i);if(el&&el.value==="NC"){if(IGNORA_CONF.includes(c))ncLeve=true;else nc=true;}});
-  else["hStorz","hEsg","hMang","hReg"].forEach(id=>{if($(id).value==="NC")nc=true;});
+  else["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{if($(id).value==="NC"){if(IGNORA_CONF_HID.includes(id))ncLeve=true;else nc=true;}});
   $("confBox").style.borderLeftColor=nc?"var(--nc)":"var(--ok)";
   $("confBox").innerHTML=`Conformidade: <b style="color:${nc?"var(--nc)":"var(--ok)"}">${nc?"NC — Não conforme":"C — Conforme"}</b> (automática pelo checklist)${!nc&&ncLeve?` · NC de acesso/sinalização fica registrada no item, sem alterar o geral`:""}`;
   return nc?"NC":"C";};
@@ -1162,7 +1171,7 @@ window.ajustaCO2=()=>{
   const co2=TIPO==="ext"&&(normAg($("fTipoLocal").value)==="CO2"||(EQ&&normAg(EQ.agp)==="CO2"));
   if(co2){el.value="NA";el.disabled=true;}else el.disabled=false;
   confAuto();};
-["hStorz","hEsg","hMang","hReg"].forEach(id=>{document.addEventListener("change",e=>{if(e.target.id===id)confAuto();});});
+["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{document.addEventListener("change",e=>{if(e.target.id===id)confAuto();});});
 buildChkExt();confAuto();
 $("fData").value=new Date().toLocaleDateString("pt-BR");
 
@@ -1483,7 +1492,7 @@ window.salvar=async()=>{
   /* qualquer item NC — inclusive acesso/sinalização — exige evidência */
   const ehNC=TIPO==="ext"
     ?CHK_EXT.some((c,i)=>$("ck"+i)&&$("ck"+i).value==="NC")
-    :["hStorz","hEsg","hMang","hReg"].some(id=>$(id).value==="NC");
+    :["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].some(id=>$(id).value==="NC");
   if(!$("fFoto1").files[0])return toast("📷 Foto 01 é obrigatória — ela é a evidência da inspeção.");
   if(ehNC&&!$("fFoto2").files[0])return toast("📷 Item não conforme exige a Foto 02 como evidência da NC.");
   if(!validaImagem($("fFoto1").files[0]))return;
@@ -1520,7 +1529,8 @@ window.salvar=async()=>{
       base.hid={storz:$("hStorz").value,qtdStorz:$("hQtdStorz").value,esguichos:$("hEsg").value,
         tipoEsguicho:$("hTipoEsg").value,qtdEsguichos:$("hQtdEsg").value,
         mangueiras:$("hMang").value,qtdMangueiras:$("hQtdMang").value,lances:$("hLances").value,
-        registro:$("hReg").value,outros:$("hOutros").value};}
+        registro:$("hReg").value,outros:$("hOutros").value,
+        sinSolo:$("hSinSolo").value,sinAerea:$("hSinAerea").value};}
     const ref=doc(collection(db,"inspecoes"));
     const ok=await comTimeout(setDoc(ref,base));
     /* a foto vai para a colecao "fotos", separada do registro: se ela ficar para tras
@@ -1532,7 +1542,7 @@ window.salvar=async()=>{
     $("fFoto1").value="";$("fFoto2").value="";$("fTipoLocal").value="";
     ["hQtdStorz","hTipoEsg","hQtdEsg","hQtdMang","hLances","hOutros"].forEach(i=>$(i).value="");
     CHK_EXT.forEach((c,i)=>{if($("ck"+i))$("ck"+i).value="C";});
-    ["hStorz","hEsg","hMang","hReg"].forEach(i=>$(i).value="C");
+    ["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(i=>$(i).value="C");
     EQ=null;$("padraoBox").classList.add("hidden");ajustaCO2();
     toast(ok&&okFoto?"✅ Inspeção registrada!"
       :!ok?(window.SEM_GRAVACAO_LOCAL
@@ -1821,6 +1831,41 @@ window.confirmaTroca=async()=>{
     $("fBusca").value=labelEq(EQ);mostraPadrao();
     avisaGravacao(okCad&&okMov,eraReserva?`✅ Nº ${doR.num} assumiu a posição Ext ${EQ.seq}; Nº ${doEQ.num} foi para manutenção/recarga.`:`✅ Nº ${doR.num} e Nº ${doEQ.num} trocaram de posição — cadastro corrigido.`);
   }catch(e){toast("Erro na substituição: "+e.message);}};
+
+/* ---------- Teste hidrostático do hidrante ----------
+   Único lugar onde "Fabricante" (marca da mangueira) e "Fabricação (ano)" do
+   hidrante podem mudar — na tela de edição comum eles ficam travados, porque
+   normalmente só mudam quando a mangueira é trocada por causa do teste. */
+window.testeHidrostatico=()=>{
+  if(!EQ||TIPO!=="hid"||!ISADMIN)return;
+  const hoje=new Date().toISOString().slice(0,10);
+  $("dlgBody").innerHTML=`<h3>🚿 Registrar teste hidrostático</h3>
+    <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Hidrante <b>${esc(String(EQ.pat))}</b> — ${esc(String(EQ.loc||""))}<br>
+      Mangueira atual: <b>${esc(String(EQ.fabricante||"—"))}</b>, fabricação <b>${esc(String(EQ.fab??"—"))}</b></p>
+    <label>Data do teste</label>
+    <input id="thData" type="date" value="${hoje}" max="${hoje}">
+    <div class="row">
+      <div><label>Marca da mangueira</label><input id="thFabricante" value="${esc(String(EQ.fabricante||""))}"></div>
+      <div><label>Fabricação (ano)</label><input id="thFab" type="number" value="${esc(String(EQ.fab??""))}"></div>
+    </div>
+    <label>Próx. T. Hidrostático</label>
+    <input id="thProx" type="date" value="${EQ.th||""}">
+    <p style="font-size:11.5px;color:var(--cinza2);margin:6px 0 0">Se a mangueira foi trocada, atualize a marca e o ano para os da mangueira nova. Confira a próxima data no certificado.</p>
+    <button class="btn" onclick="confirmaTesteHidrostatico()">✅ Confirmar teste</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("dlg").showModal();};
+window.confirmaTesteHidrostatico=async()=>{
+  if(!podeGravar())return;
+  if(!EQ||TIPO!=="hid"){$("dlg").close();return toast("A tela foi atualizada em segundo plano. Abra o hidrante de novo.");}
+  const fabricante=$("thFabricante").value.trim();
+  const fab=+$("thFab").value||null;
+  const th=$("thProx").value||null;
+  const dt=$("thData").value||new Date().toISOString().slice(0,10);
+  if(!fabricante||!fab||!th)return toast("Preencha marca da mangueira, ano de fabricação e a próxima data.");
+  const pat=String(EQ.pat);
+  CADX.hidEdit[pat]={tipo:EQ.tipo||null,cap:EQ.cap||null,loc:EQ.loc||null,
+    fab,fabricante,man:EQ.man||null,th,criado:EQ.criado||null};
+  await salvaCADX("teste_hidrostatico",{pat,data:dt,fab,fabricante,th});};
 
 /* ---------- Retorno da recarga ----------
    Fecha o ciclo aberto pela substituição por reserva: o cilindro volta da Engex,
@@ -2436,6 +2481,7 @@ window.abrir=async id=>{
   else{const h=i.hid||{};
     detalhe=`<p style="font-size:13.5px;line-height:1.8"><b>Storz:</b> ${h.storz||"—"} (qtd ${h.qtdStorz||"—"}) · <b>Esguichos:</b> ${h.esguichos||"—"} ${h.tipoEsguicho?`(${h.tipoEsguicho}, qtd ${h.qtdEsguichos||"—"})`:""}<br>
     <b>Mangueiras:</b> ${h.mangueiras||"—"} (qtd ${h.qtdMangueiras||"—"}, lances ${h.lances||"—"}) · <b>Registro:</b> ${h.registro||"—"}<br>
+    <b>Sinalização de solo:</b> ${h.sinSolo||"—"} · <b>Sinalização aérea:</b> ${h.sinAerea||"—"}<br>
     ${h.outros?`<b>Outros:</b> ${h.outros}`:""}</p>`;}
   const F=await fotosDe(i);
   $("dlgBody").innerHTML=`
@@ -2473,7 +2519,9 @@ window.editarInspecao=async id=>{
     campos=`<div class="chk"><span>Adaptador Storz</span><select id="ehStorz">${opt(h.storz)}</select></div>
       <div class="chk"><span>Esguichos</span><select id="ehEsg">${opt(h.esguichos)}</select></div>
       <div class="chk"><span>Visual mangueiras</span><select id="ehMang">${opt(h.mangueiras)}</select></div>
-      <div class="chk"><span>Registro do hidrante</span><select id="ehReg">${opt(h.registro)}</select></div>`;
+      <div class="chk"><span>Registro do hidrante</span><select id="ehReg">${opt(h.registro)}</select></div>
+      <div class="chk"><span>Sinalização de solo</span><select id="ehSinSolo">${opt(h.sinSolo)}</select></div>
+      <div class="chk"><span>Sinalização aérea</span><select id="ehSinAerea">${opt(h.sinAerea)}</select></div>`;
   }
   const fotoEd=(n,src,erro)=>`<div><label>Foto 0${n}</label>
       ${src?`<img src="${src}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;display:block;margin-bottom:5px">`
@@ -2549,7 +2597,8 @@ window.salvaEdicaoInspecao=async id=>{
         patch.diverg={agentePadrao:pos.agp||"",cargaPadrao:pos.cgp||"",agenteInformado:ag||"",cargaInformada:cg||""};
       }else{patch.divergencia=false;patch.divergAceita="";patch.diverg=null;}
     }else{
-      const hid={...(i.hid||{}),storz:$("ehStorz").value,esguichos:$("ehEsg").value,mangueiras:$("ehMang").value,registro:$("ehReg").value};
+      const hid={...(i.hid||{}),storz:$("ehStorz").value,esguichos:$("ehEsg").value,mangueiras:$("ehMang").value,registro:$("ehReg").value,
+        sinSolo:$("ehSinSolo").value,sinAerea:$("ehSinAerea").value};
       const nc=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC");
       patch={hid,conformidade:nc?"NC":"C"};
     }
@@ -2992,7 +3041,8 @@ window.laudoPDF=async()=>{
     <td class="${i.conformidade==="NC"?"nc":"ok"}">${i.conformidade||"—"}</td><td>${fmtBR(i.data)}</td><td>${esc(i.inspetor||"")}</td></tr>`;
   const itensNC=i=>{
     if(i.tipo==="ext")return Object.entries(i.checklist||{}).filter(([,v])=>v==="NC").map(([k])=>k);
-    const h=i.hid||{},mapa={storz:"Storz",esguichos:"Esguichos",mangueiras:"Mangueiras",registro:"Registro"};
+    const h=i.hid||{},mapa={storz:"Storz",esguichos:"Esguichos",mangueiras:"Mangueiras",registro:"Registro",
+      sinSolo:"Sinalização de solo",sinAerea:"Sinalização aérea"};
     return Object.entries(mapa).filter(([k])=>h[k]==="NC").map(([,v])=>v);};
   const todasNC=atual.filter(i=>itensNC(i).length);
   const FNC=new Map();for(const x of todasNC)FNC.set(x.id,await fotosDe(x));
@@ -3837,8 +3887,9 @@ window.abreEdicaoHidPat=pat=>{
     $("dlgBody").innerHTML=`<h3>✏️ Hidrante ${h.pat}</h3>
       <div class="row"><div><label>Tipo</label><input id="xAgp" value="${esc(h.tipo??"")}"></div><div><label>Capacidade</label><input id="xCgp" value="${esc(h.cap??"")}"></div></div>
       <label>Localização</label><input id="xLoc" value="${esc(h.loc??"")}">
-      <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(h.fab??"")}"></div><div><label>Fabricante</label><input id="xFabr" value="${esc(h.fabricante??"")}"></div></div>
-      <div class="row"><div><label>Próx. Manutenção</label><input id="xM2" type="date" value="${h.man||""}"></div><div><label>Próx. T. Hidrostático</label><input id="xM3" type="date" value="${h.th||""}"></div></div>
+      <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(h.fab??"")}" disabled></div><div><label>Fabricante (marca da mangueira)</label><input id="xFabr" value="${esc(h.fabricante??"")}" disabled></div></div>
+      <small style="color:var(--cinza)">Esses dois só mudam em "Ações do equipamento" → "🚿 Registrar teste hidrostático" — é lá que a mangueira costuma ser trocada.</small>
+      <div class="row" style="margin-top:12px"><div><label>Próx. Manutenção</label><input id="xM2" type="date" value="${h.man||""}"></div><div><label>Próx. T. Hidrostático</label><input id="xM3" type="date" value="${h.th||""}"></div></div>
       <label>Cadastrado em <small style="color:var(--cinza)">(em branco = já existia antes; só conta na rota deste mês em diante)</small></label>
       <input id="xCriado" type="date" value="${h.criado||""}">
       <button class="btn" onclick="salvaEdEquip('hid','${h.pat}')">💾 Salvar</button>
@@ -4206,11 +4257,11 @@ window.exportXLSX=async tipo=>{
     else wsM.addRow(["Nenhuma substituição registrada no mês."]);
   }else{
     const ws=wb.addWorksheet("Padrão");
-    cabecalho(ws,"Relatório de Inspeção de Hidrantes ",26,pm,hoje);
-    const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio Novo","Tipo","Capacidade","Fabricação","Fabricante","Localização Nova","Prox. Manutenção","Prox. T. Hidrostático","Data da Inspeção","Adaptador Storz","Quantidade de Storz","Esguichos ","Tipo de Esguicho","Quantidade de Esguichos","","Visual Mangueiras","Quantidade de Mangueiras ","Tamanho dos Lances de mangueiras","Registros dos Hidrantes","Outros","Obs","Foto 01","Foto 02"];
+    cabecalho(ws,"Relatório de Inspeção de Hidrantes ",29,pm,hoje);
+    const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio Novo","Tipo","Capacidade","Fabricação","Fabricante","Localização Nova","Prox. Manutenção","Prox. T. Hidrostático","Data da Inspeção","Adaptador Storz","Quantidade de Storz","Esguichos ","Tipo de Esguicho","Quantidade de Esguichos","","Visual Mangueiras","Quantidade de Mangueiras ","Tamanho dos Lances de mangueiras","Sinalização de Solo","Sinalização Aérea","Registros dos Hidrantes","Conformidade","Outros","Obs","Foto 01","Foto 02"];
     cols.forEach((c,i)=>{const cell=ws.getRow(9).getCell(i+1);cell.value=c;headerCell(cell,false);});
     ws.getRow(9).height=29;
-    setWidths(ws,{A:9.2,B:14.7,C:17,D:12.5,E:9,F:12.8,G:11,H:10.7,I:18.7,J:15.1,K:15.1,L:13.5,M:11.5,N:12.5,O:11.5,P:12,Q:14.8,R:13,S:13.8,T:16.8,U:19.7,V:14.7,W:11.5,X:20,Y:11.5,Z:10.8});
+    setWidths(ws,{A:9.2,B:14.7,C:17,D:12.5,E:9,F:12.8,G:11,H:10.7,I:18.7,J:15.1,K:15.1,L:13.5,M:11.5,N:12.5,O:11.5,P:12,Q:14.8,R:13,S:13.8,T:16.8,U:19.7,V:13,W:13,X:14.7,Y:12,Z:11.5,AA:20,AB:11.5,AC:10.8});
     ws.views=[{state:"frozen",ySplit:9}];
     let r=10;
     for(const e of CAD.hid){
@@ -4220,12 +4271,14 @@ window.exportXLSX=async tipo=>{
       row.values=[e.seq,"Hidrante",insp?.inspetor||"",e.pat||"",e.tipo??"",e.cap??"",e.fab??"",e.fabricante||"",e.loc||"",
         toDate(e.man),toDate(e.th),insp?toDate(insp.data):"",
         h.storz||"",h.qtdStorz||"",h.esguichos||"",h.tipoEsguicho||"",h.qtdEsguichos||"","",
-        h.mangueiras||"",h.qtdMangueiras||"",h.lances||"",h.registro||"",h.outros||"",insp?.obs||""];
+        h.mangueiras||"",h.qtdMangueiras||"",h.lances||"",h.sinSolo||"",h.sinAerea||"",h.registro||"",
+        insp?.conformidade||"",h.outros||"",insp?.obs||""];
       ws.getCell(r,10).numFmt="mmm-yy";ws.getCell(r,11).numFmt="mmm-yy";ws.getCell(r,12).numFmt="dd/mm/yyyy";
-      row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>26)return;dataCell(cell,false,false);});
+      row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>29)return;dataCell(cell,false,false);
+        if(cn===25&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
       const FH=await fotosDe(insp);
-      if(FH.foto1)addFoto(wb,ws,FH.foto1,25,r);
-      if(FH.foto2)addFoto(wb,ws,FH.foto2,26,r);
+      if(FH.foto1)addFoto(wb,ws,FH.foto1,28,r);
+      if(FH.foto2)addFoto(wb,ws,FH.foto2,29,r);
       r++;}
     await blocoAssinaturas(wb,ws,r,new Set(mesArr.map(i=>i.inspetor).filter(Boolean)));
   }
