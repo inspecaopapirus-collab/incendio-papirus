@@ -475,6 +475,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <button class="btn sec adminOnly hidden" onclick="editarEquip()">✏️ Editar / remover equip.</button>
  <button class="btn sec adminOnly hidden" onclick="importarLote()">📥 Importar em lote</button>
  <button class="btn sec adminOnly hidden" onclick="corrigirLote()">🛠️ Corrigir em lote</button>
+ <button class="btn sec adminOnly hidden" onclick="corrigirInspLote()">🛠️ Corrigir inspeções em lote</button>
  <button class="btn sec adminOnly hidden" onclick="revisarReservas()">🧹 Revisar pool de reserva</button>
  <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
  </div>
@@ -4246,6 +4247,96 @@ window.processaLote=async modo=>{
     audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)},okImp);
     $("dlg").close();
     avisaGravacao(okImp&&okOvr,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
+  }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
+
+/* ---------- Corrigir inspeções em lote ----------
+   Mesmo espírito do "Corrigir cadastro em lote": baixa, edita, sobe. Só mexe no
+   que o admin comum já edita na correção individual (checklist, dados
+   informados, obs, data) — reatribuir inspetor/equipamento continua exclusivo
+   da correção individual (admin fixo), por linha, não em lote.
+   Célula em branco = mantém o valor atual, igual à planilha de cadastro. */
+const INSP_COLS_EXT=["Local (referência)","Nº cilindro (referência)","Inspetor (referência)","Data",
+  "Agente no local","Carga no local",...CHK_EXT,"Obs","Conformidade (calculada, referência)"];
+const INSP_COLS_HID=["Patrimônio (referência)","Inspetor (referência)","Data",
+  "Adaptador Storz","Qtd. Storz","Esguichos","Tipo esguicho","Qtd. esguichos",
+  "Visual mangueiras","Qtd. mangueiras","Tamanho lances","Registro do hidrante",
+  "Sinalização de solo","Sinalização aérea","Outros","Obs","Conformidade (calculada, referência)"];
+window.corrigirInspLote=()=>{
+  if(!ISADMIN)return;
+  $("dlgBody").innerHTML=`<h3>🛠️ Corrigir inspeções em lote</h3>
+    ${seletorLoteTipo}
+    <label style="margin-top:8px">Mês</label>
+    <select id="lMesInsp">${$("pMes").innerHTML}</select>
+    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe as inspeções do mês.<br>2) Corrija o que precisar — <b>não altere a 1ª coluna</b> (ID, é a chave). Célula em branco = mantém o valor atual.<br>3) As colunas "(referência)" e a Conformidade são só pra te situar — mudá-las não tem efeito; pra trocar inspetor ou equipamento de uma inspeção, use "✏️ Corrigir inspeção" na ficha dela.<br>4) Envie o arquivo corrigido e toque em Aplicar.</p>
+    <button class="btn sec" onclick="exportInspLote()">⬇️ Baixar inspeções do mês (.xlsx)</button>
+    <label>Arquivo corrigido (.xlsx)</label><input id="lFileInsp" type="file" accept=".xlsx">
+    <button class="btn" onclick="processaLoteInsp()">🛠️ Aplicar correções</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("lMesInsp").value=$("pMes").value;
+  $("dlg").showModal();};
+window.exportInspLote=async()=>{
+  const tq=$("lTipoEq").value,mes=$("lMesInsp").value;
+  const linhas=ITENS.filter(i=>i.tipo===tq&&i.mes===mes)
+    .sort((a,b)=>(tq==="ext"?(+a.eqSeq-+b.eqSeq):String(a.eqPat??"").localeCompare(String(b.eqPat??""))));
+  const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet("Inspeções");
+  ws.addRow(["ID (não alterar)",...(tq==="ext"?INSP_COLS_EXT:INSP_COLS_HID)]);
+  if(tq==="ext")linhas.forEach(i=>ws.addRow([i.id,`Ext ${i.eqSeq??"—"}`,i.eqNum??"",i.inspetor??"",fmtBR(i.data),
+    i.tipoLocal??"",i.cargaLocal??"",...CHK_EXT.map(c=>i.checklist?.[c]??""),i.obs??"",i.conformidade??""]));
+  else linhas.forEach(i=>{const h=i.hid||{};ws.addRow([i.id,i.eqPat??"",i.inspetor??"",fmtBR(i.data),
+    h.storz??"",h.qtdStorz??"",h.esguichos??"",h.tipoEsguicho??"",h.qtdEsguichos??"",
+    h.mangueiras??"",h.qtdMangueiras??"",h.lances??"",h.registro??"",h.sinSolo??"",h.sinAerea??"",
+    h.outros??"",i.obs??"",i.conformidade??""]);});
+  ws.getRow(1).font={bold:true};ws.columns.forEach(c=>c.width=18);
+  await baixaXLSX(wb,`inspecoes_${tq==="ext"?"extintores":"hidrantes"}_${mes}.xlsx`);
+  toast(`⬇️ ${linhas.length} inspeção(ões) baixada(s) — corrija e envie de volta.`);};
+window.processaLoteInsp=async()=>{
+  if(!podeGravar())return;
+  const tq=$("lTipoEq").value;
+  const f=$("lFileInsp").files[0];if(!f)return toast("Selecione o arquivo .xlsx.");
+  if(!validaXlsx(f))return;
+  try{
+    const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());
+    const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
+    const lote=writeBatch(db);let n=0;const pulos=[];
+    ws.eachRow((row,rn)=>{
+      if(rn===1)return;
+      const id=cellStr(row.getCell(1).value);if(!id)return;
+      const i=ITENS.find(x=>x.id===id);
+      if(!i){pulos.push(`linha ${rn}: ID não encontrado`);return;}
+      const off=1; /* coluna 1 é o ID; os campos do tipo começam na 2 */
+      const patch={};let mexeu=false;
+      if(tq==="ext"){
+        const data=paraISO(row.getCell(off+4).value);
+        const ag=cellStr(row.getCell(off+5).value),cg=cellStr(row.getCell(off+6).value);
+        if(ag){patch.tipoLocal=ag;mexeu=true;}
+        if(cg){patch.cargaLocal=cg;mexeu=true;}
+        const checklist={...(i.checklist||{})};let tocouChk=false;
+        CHK_EXT.forEach((c,idx)=>{const v=cellStr(row.getCell(off+7+idx).value).toUpperCase();
+          if(v&&["C","NC","NA"].includes(v)){checklist[c]=v;tocouChk=true;}});
+        if(tocouChk){patch.checklist=checklist;patch.conformidade=calcConfExt(checklist);mexeu=true;}
+        const obs=cellStr(row.getCell(off+15).value);if(obs){patch.obs=obs;mexeu=true;}
+        if(data){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
+      }else{
+        const data=paraISO(row.getCell(off+3).value);
+        const hid={...(i.hid||{})};let tocouHid=false;
+        const campo=(col,chave,upper)=>{const v=cellStr(row.getCell(col).value);
+          if(v){hid[chave]=upper?v.toUpperCase():v;tocouHid=true;}};
+        campo(off+4,"storz",true);campo(off+5,"qtdStorz");campo(off+6,"esguichos",true);
+        campo(off+7,"tipoEsguicho");campo(off+8,"qtdEsguichos");campo(off+9,"mangueiras",true);
+        campo(off+10,"qtdMangueiras");campo(off+11,"lances");campo(off+12,"registro",true);
+        campo(off+13,"sinSolo",true);campo(off+14,"sinAerea",true);campo(off+15,"outros");
+        if(tocouHid){patch.hid=hid;
+          patch.conformidade=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC")?"NC":"C";mexeu=true;}
+        const obs=cellStr(row.getCell(off+16).value);if(obs){patch.obs=obs;mexeu=true;}
+        if(data){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
+      }
+      if(!mexeu)return;
+      lote.update(doc(db,"inspecoes",id),patch);n++;});
+    if(!n)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
+    const ok=await comTimeout(lote.commit());
+    audit("corrigir_inspecoes_lote",{tipo:tq,qtd:n,ignoradas:pulos.slice(0,10)},ok);
+    $("dlg").close();
+    avisaGravacao(ok,`✅ ${n} inspeção(ões) corrigida(s)${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
   }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Export Excel (idêntico ao modelo) ---------- */
