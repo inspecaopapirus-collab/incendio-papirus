@@ -3900,6 +3900,54 @@ window.confirmaAlteraId=async()=>{
   }catch(e){
     CADX=cadxAntes;OVR=ovrAntes;aplicaOvr();
     toast("Erro ao trocar o ID, nada foi alterado: "+e.message);}};
+/* ---------- Corrigir o patrimônio (ID) de um hidrante ----------
+   Mesma trava do extintor: só corrige patrimônio de um hidrante que nunca foi
+   inspecionado. O "seq" do hidrante nunca muda (não é exposto na tela, mas
+   existe desde o cadastro base) e é o que usamos para achar com segurança o
+   registro certo, mesmo que o patrimônio já tenha sido corrigido antes. */
+window.alterarPatHid=()=>{
+  if(!ISADMIN)return toast("Apenas o administrador pode alterar o patrimônio do hidrante.");
+  if(!EQ||TIPO!=="hid")return toast("Abra um hidrante para alterar o patrimônio.");
+  const seqAtual=EQ.seq,patAtual=String(EQ.pat);
+  const nInsp=ITENS.filter(i=>i.tipo==="hid"&&+i.eqSeq===+seqAtual).length;
+  if(nInsp>0)
+    return _dlgAbre(`<h3>🔢 Corrigir patrimônio do hidrante</h3>
+      <p style="font-size:13px;line-height:1.6">Este hidrante (${esc(patAtual)}) já tem <b>${nInsp}</b> inspeção(ões) registrada(s).</p>
+      <p style="font-size:13px;line-height:1.6">Trocar o patrimônio agora deixaria esse histórico apontando para um identificador que não existe mais. Por isso só é permitido corrigir o patrimônio de um hidrante que nunca foi inspecionado.</p>
+      <button class="btn sec" onclick="dlg.close()">Entendi</button>`);
+  $("dlgBody").innerHTML=`<h3>🔢 Corrigir patrimônio do hidrante</h3>
+    <p style="font-size:13px;color:var(--cinza);line-height:1.6">Hoje: <b>${esc(patAtual)}</b> — ${esc(EQ.loc||"")}</p>
+    <label>Novo patrimônio</label><input id="novoPatHid" value="${esc(patAtual)}">
+    <button class="btn" onclick="confirmaAlteraPatHid()">💾 Confirmar</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("dlg").showModal();};
+window.confirmaAlteraPatHid=async()=>{
+  if(!podeGravar())return;
+  if(!ISADMIN||!EQ||TIPO!=="hid")return;
+  const seqAtual=EQ.seq,patAtual=String(EQ.pat);
+  const novoPat=$("novoPatHid").value.trim();
+  if(!novoPat)return toast("Informe o novo patrimônio.");
+  if(novoPat===patAtual)return toast("O patrimônio informado é igual ao atual.");
+  if(CAD.hid.some(h=>String(h.pat)===novoPat))return toast(`O patrimônio ${novoPat} já está em uso.`);
+  const nInsp=ITENS.filter(i=>i.tipo==="hid"&&+i.eqSeq===+seqAtual).length;
+  if(nInsp>0)return toast("Este hidrante já tem histórico — não dá para renomear.");
+  const cadxAntes=JSON.parse(JSON.stringify(CADX));
+  try{
+    const viaAdd=CADX.hidAdd.find(h=>+h.seq===+seqAtual);
+    if(viaAdd){viaAdd.pat=novoPat;}
+    else{
+      const base=CAD0.hid.find(h=>+h.seq===+seqAtual);
+      const chave=String(base?.pat??patAtual);
+      CADX.hidEdit[chave]={...(CADX.hidEdit[chave]||{}),pat:novoPat};}
+    const ok=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    if(!ok){CADX=cadxAntes;return toast("⚠️ Não gravou agora — nada foi alterado. Tente de novo.");}
+    aplicaOvr();
+    const achou=CAD.hid.find(h=>+h.seq===+seqAtual);
+    if(achou){EQ=achou;$("fBusca").value=labelEq(EQ);mostraPadrao();}
+    audit("alterar_patrimonio_hid",{de:patAtual,para:novoPat});
+    $("dlg").close();
+    toast(`✅ O patrimônio ${patAtual} agora é o ${novoPat}.`);
+  }catch(e){CADX=cadxAntes;aplicaOvr();toast("Erro ao trocar o patrimônio, nada foi alterado: "+e.message);}};
 window.editarEquip=()=>{
   if(!ISADMIN)return;
   $("dlgBody").innerHTML=`<h3>✏️ Editar / remover equipamento</h3>
@@ -3939,12 +3987,12 @@ window.abreEdicaoHidPat=pat=>{
     $("dlgBody").innerHTML=`<h3>✏️ Hidrante ${h.pat}</h3>
       <div class="row"><div><label>Tipo</label><input id="xAgp" value="${esc(h.tipo??"")}"></div><div><label>Capacidade</label><input id="xCgp" value="${esc(h.cap??"")}"></div></div>
       <label>Localização</label><input id="xLoc" value="${esc(h.loc??"")}">
-      <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(h.fab??"")}" disabled></div><div><label>Fabricante (marca da mangueira)</label><input id="xFabr" value="${esc(h.fabricante??"")}" disabled></div></div>
-      <small style="color:var(--cinza)">Esses dois só mudam em "Ações do equipamento" → "🚿 Registrar teste hidrostático" — é lá que a mangueira costuma ser trocada.</small>
+      <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(h.fab??"")}"></div><div><label>Fabricante (marca da mangueira)</label><input id="xFabr" value="${esc(h.fabricante??"")}"></div></div>
       <div class="row" style="margin-top:12px"><div><label>Próx. Manutenção</label><input id="xM2" type="date" value="${h.man||""}"></div><div><label>Próx. T. Hidrostático</label><input id="xM3" type="date" value="${h.th||""}"></div></div>
       <label>Cadastrado em <small style="color:var(--cinza)">(em branco = já existia antes; só conta na rota deste mês em diante)</small></label>
       <input id="xCriado" type="date" value="${h.criado||""}">
       <button class="btn" onclick="salvaEdEquip('hid','${h.pat}')">💾 Salvar</button>
+      <button class="btn sec" onclick="dlg.close();setTimeout(()=>{irPara('hid','${h.pat}');alterarPatHid();},90)">🔢 Corrigir o patrimônio (hoje ${esc(String(h.pat))})</button>
       <button class="btn sec" style="color:#c62828;border-color:#c62828" onclick="removeEquip('hid','${h.pat}')">🗑️ Remover do cadastro</button>
       <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
     $("dlg").showModal();};
