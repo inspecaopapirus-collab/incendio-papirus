@@ -4276,6 +4276,7 @@ window.corrigirInspLote=()=>{
   $("dlg").showModal();};
 window.exportInspLote=async()=>{
   const tq=$("lTipoEq").value,mes=$("lMesInsp").value;
+  await garanteMes(mes);
   const linhas=ITENS.filter(i=>i.tipo===tq&&i.mes===mes)
     .sort((a,b)=>(tq==="ext"?(+a.eqSeq-+b.eqSeq):String(a.eqPat??"").localeCompare(String(b.eqPat??""))));
   const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet("Inspeções");
@@ -4294,6 +4295,7 @@ window.processaLoteInsp=async()=>{
   const tq=$("lTipoEq").value;
   const f=$("lFileInsp").files[0];if(!f)return toast("Selecione o arquivo .xlsx.");
   if(!validaXlsx(f))return;
+  await garanteMes($("lMesInsp").value);
   try{
     const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());
     const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
