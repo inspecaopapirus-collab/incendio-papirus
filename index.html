@@ -893,7 +893,7 @@ const MOTIVOS_COND=["Corrosão no corpo do cilindro","Teste hidrostático reprov
 let fb=null,db=null,auth=null,ITENS=[],NOME="",ASSIN="",TIPO="ext",EQ=null,ISADMIN=false,ADMINS=[];
 /* Perfis: inspetor · admin · teste_inspetor · teste_admin
    Os perfis de teste enxergam o sistema inteiro, mas não gravam nada. */
-let PERFIL="inspetor",SOLEITURA=false,BLOQUEADO=false;
+let PERFIL="inspetor",SOLEITURA=false,BLOQUEADO=false,ADMIN_FIXO=false;
 const PERFIS={inspetor:"Inspetor",admin:"Administrador",teste_inspetor:"Teste — visão de inspetor",
   teste_admin:"Teste — visão de administrador",bloqueado:"Acesso encerrado"};
 /* perfis que aparecem no seletor — "bloqueado" só se define pelo botão "Encerrar acesso" */
@@ -905,6 +905,7 @@ function recalcAdmin(){
   SOLEITURA=String(PERFIL).startsWith("teste")||BLOQUEADO;
   ISADMIN=(ADMIN_EMAILS.includes(em)||ADMINS.map(x=>String(x).toLowerCase()).includes(em)
     ||PERFIL==="admin"||PERFIL==="teste_admin")&&!BLOQUEADO;
+  ADMIN_FIXO=ADMIN_EMAILS.includes(em)&&!BLOQUEADO;
   document.querySelectorAll(".adminOnly").forEach(el=>el.classList.toggle("hidden",!ISADMIN));
   pintaModoTeste();}
 /* Guarda única: qualquer gravação passa por aqui */
@@ -2523,6 +2524,32 @@ window.editarInspecao=async id=>{
       <div class="chk"><span>Sinalização de solo</span><select id="ehSinSolo">${opt(h.sinSolo)}</select></div>
       <div class="chk"><span>Sinalização aérea</span><select id="ehSinAerea">${opt(h.sinAerea)}</select></div>`;
   }
+  const dadosHid=i.tipo==="hid"?`
+    <label style="margin-top:14px">🚒 Dados informados na inspeção</label>
+    <div class="row">
+      <div><label>Quantidade de Storz</label><input id="ehQtdStorz" type="number" min="0" value="${esc(String((i.hid||{}).qtdStorz??""))}"></div>
+      <div><label>Tipo de esguicho</label><input id="ehTipoEsg" value="${esc(String((i.hid||{}).tipoEsguicho??""))}"></div>
+    </div>
+    <div class="row">
+      <div><label>Qtd. esguichos</label><input id="ehQtdEsg" type="number" min="0" value="${esc(String((i.hid||{}).qtdEsguichos??""))}"></div>
+      <div><label>Qtd. mangueiras</label><input id="ehQtdMang" type="number" min="0" value="${esc(String((i.hid||{}).qtdMangueiras??""))}"></div>
+    </div>
+    <div class="row">
+      <div><label>Tamanho dos lances</label><input id="ehLances" value="${esc(String((i.hid||{}).lances??""))}"></div>
+      <div><label>Outros</label><input id="ehOutros" value="${esc(String((i.hid||{}).outros??""))}"></div>
+    </div>`:"";
+  const fixoBox=ADMIN_FIXO?(()=>{
+    const optsEq=i.tipo==="ext"
+      ?CAD.ext.map(e=>`<option value="${e.seq}"${String(e.seq)===String(i.eqSeq)?" selected":""}>Local ${e.seq} — ${esc(e.loc||"")}</option>`).join("")
+      :CAD.hid.map(h=>`<option value="${esc(String(h.pat))}"${String(h.pat)===String(i.eqPat)?" selected":""}>${esc(String(h.pat))} — ${esc(h.loc||"")}</option>`).join("");
+    return `
+    <label style="margin-top:14px">🔒 Reatribuição (só admin fixo)</label>
+    <p style="font-size:11.5px;color:var(--cinza2);margin:2px 0 6px">Use só quando o registro foi salvo no inspetor ou no equipamento errado.</p>
+    <label>Inspetor</label><input id="eInspetor" value="${esc(i.inspetor||"")}">
+    <label style="margin-top:8px">${i.tipo==="ext"?"Local desta inspeção":"Hidrante desta inspeção"}</label>
+    <select id="eEquip">${optsEq}</select>
+    ${i.tipo==="ext"?`<label style="margin-top:8px">Nº do cilindro informado</label><input id="eEqNum" type="number" value="${esc(String(i.eqNum??""))}">`:""}`;
+  })():"";
   const fotoEd=(n,src,erro)=>`<div><label>Foto 0${n}</label>
       ${src?`<img src="${src}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;display:block;margin-bottom:5px">`
         :erro?`<p style="font-size:12px;color:#92400e;margin-bottom:5px"><b>N\u00e3o carregou.</b><br>A foto existe, mas n\u00e3o veio \u2014 sinal fraco.</p>`
@@ -2546,7 +2573,7 @@ window.editarInspecao=async id=>{
     <div id="eDivBox"></div>`:"";
   $("dlgBody").innerHTML=`<h3>✏️ Corrigir inspeção</h3>
     <p style="font-size:12px;color:var(--cinza)">${i.tipo==="ext"?`Extintor Nº ${i.eqNum??i.eqSeq} · Local ${i.eqSeq??"—"}`:`Hidrante ${i.eqPat}`} · ${esc(i.eqLoc||"")}</p>
-    ${dados}
+    ${dados}${dadosHid}${fixoBox}
     <label style="margin-top:14px">✅ Checklist</label>
     <div style="margin-top:4px">${campos}</div>
     <p style="font-size:11.5px;color:var(--cinza2);margin-top:8px">A conformidade (C/NC) do registro é recalculada automaticamente ao salvar.</p>
@@ -2598,13 +2625,38 @@ window.salvaEdicaoInspecao=async id=>{
       }else{patch.divergencia=false;patch.divergAceita="";patch.diverg=null;}
     }else{
       const hid={...(i.hid||{}),storz:$("ehStorz").value,esguichos:$("ehEsg").value,mangueiras:$("ehMang").value,registro:$("ehReg").value,
-        sinSolo:$("ehSinSolo").value,sinAerea:$("ehSinAerea").value};
+        sinSolo:$("ehSinSolo").value,sinAerea:$("ehSinAerea").value,
+        qtdStorz:$("ehQtdStorz").value,tipoEsguicho:$("ehTipoEsg").value,qtdEsguichos:$("ehQtdEsg").value,
+        qtdMangueiras:$("ehQtdMang").value,lances:$("ehLances").value,outros:$("ehOutros").value};
       const nc=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC");
       patch={hid,conformidade:nc?"NC":"C"};
     }
     /* observação e data valem para os dois tipos */
     if($("eObs"))patch.obs=$("eObs").value;
     if($("eData")&&$("eData").value){patch.data=$("eData").value;patch.mes=$("eData").value.slice(0,7);}
+    /* reatribuição de inspetor/equipamento — só admin fixo vê esses campos */
+    let reatrib=null;
+    if($("eInspetor")){
+      const novoInsp=$("eInspetor").value.trim();
+      if(!novoInsp)return toast("O nome do inspetor não pode ficar em branco.");
+      if(novoInsp!==(i.inspetor||"")){reatrib={...(reatrib||{}),inspetor:{de:i.inspetor||"",para:novoInsp}};patch.inspetor=novoInsp;}
+    }
+    if($("eEquip")){
+      if(i.tipo==="ext"){
+        const novoSeq=+$("eEquip").value;
+        const novoNum=$("eEqNum").value===""?null:+$("eEqNum").value;
+        const pos=CAD.ext.find(e=>+e.seq===novoSeq);
+        if(novoSeq!==+i.eqSeq||novoNum!==(i.eqNum??null)){
+          reatrib={...(reatrib||{}),equipamento:{de:{eqSeq:i.eqSeq,eqNum:i.eqNum},para:{eqSeq:novoSeq,eqNum:novoNum}}};
+          patch.eqSeq=novoSeq;patch.eqNum=novoNum;patch.eqLoc=pos?.loc||"";}
+      }else{
+        const novoPat=$("eEquip").value;
+        const pos=CAD.hid.find(h=>String(h.pat)===novoPat);
+        if(novoPat!==String(i.eqPat??"")){
+          reatrib={...(reatrib||{}),equipamento:{de:{eqPat:i.eqPat},para:{eqPat:novoPat}}};
+          patch.eqPat=novoPat;patch.eqLoc=pos?.loc||"";}
+      }
+    }
     /* foto substituída: carimba o equipamento da inspeção e sinaliza a substituição */
     const ident=i.tipo==="hid"?`Hidrante ${i.eqPat??"—"}`:`Ext ${i.eqSeq??"—"} · Nº ${i.eqNum??"—"}`;
     const carimboEd=[ident+(i.eqLoc?" — "+i.eqLoc:""),
@@ -2631,7 +2683,7 @@ window.salvaEdicaoInspecao=async id=>{
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
     const okEd=await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
-    audit("editar_inspecao",{id,tipo:i.tipo},okEd);
+    audit("editar_inspecao",{id,tipo:i.tipo,...(reatrib?{reatribuido:reatrib}:{})},okEd);
     $("dlg").close();avisaGravacao(okEd,"✅ Inspeção corrigida!");
   }catch(e){toast("Erro ao salvar: "+e.message);}};
 window.excluir=async id=>{
