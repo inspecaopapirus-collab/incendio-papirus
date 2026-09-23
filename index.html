@@ -301,6 +301,9 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div><label>Sinalização de solo</label><select id="hSinSolo"><option>C</option><option>NC</option><option>NA</option></select></div>
  <div><label>Sinalização aérea</label><select id="hSinAerea"><option>C</option><option>NC</option><option>NA</option></select></div>
  </div>
+ <div class="row">
+ <div><label>Abrigo lacrado</label><select id="hAbrigo"><option>Sim</option><option>Não</option></select></div>
+ </div>
  </div>
 
  <label>Observações</label><textarea id="fObs" placeholder="Anote não conformidades e detalhes"></textarea>
@@ -447,6 +450,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <option value="area">Em área</option>
  <option value="reserva">Reserva</option>
  <option value="manut">Em manutenção</option>
+ <option value="engex">Reserva Engex</option>
  <option value="cond">Condenados</option>
  </select>
  <select id="eqOrd" onchange="renderEquip()" aria-label="Ordenação">
@@ -1097,19 +1101,44 @@ function mostraPadrao(){
 window.toggleEngex=async()=>{
   if(!EQ||TIPO!=="ext"||isReserva(EQ))return;
   const ligando=!EQ.engex;
+  const numOriginal=EQ.num,locOriginal=EQ.loc||"",seqOriginal=EQ.seq;
+  const vaiParaManut=ligando&&!!numOriginal;
   const msg=ligando
-    ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela Engex?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da Engex até a manutenção do seu retornar. Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`
+    ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela Engex?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da Engex até a manutenção do seu retornar.${vaiParaManut?`\n\nO Nº ${numOriginal} (o que estava aqui) vai automaticamente para "equipamento em manutenção/recarga", e este local fica sem número até você informar o do cilindro emprestado em "Verificar nº do local".`:` Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`}`
     :`Desmarcar a reserva Engex deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
   if(!confirm(msg))return;
-  const seq=String(EQ.seq);
-  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?new Date().toISOString().slice(0,10):""};
+  const seq=String(seqOriginal);
+  const ovrAntes=JSON.parse(JSON.stringify(OVR)),cadxAntes=JSON.parse(JSON.stringify(CADX));
+  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?dataHoje():""};
+  const patch={[seq]:OVR[seq]};
+  let novoSeq=null;
+  if(vaiParaManut){
+    /* o cilindro que estava aqui "vira" uma posição de reserva nova, marcada em
+       manutenção — mesma lógica de "Substituir por reserva (recarga)", só que sem
+       um reserva pronto para entrar no lugar (por isso o local fica sem número). */
+    const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
+    const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;});
+    novoSeq=proxSeqReserva();
+    CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal};
+    patch[String(novoSeq)]=OVR[String(novoSeq)];
+    CAMPOS.forEach(c=>{OVR[seq][c]=null;});
+  }
   try{
-    /* grava SO esta posicao. Antes regravava o mapa inteiro a partir da memoria:
-       um aparelho com estado antigo (offline, por exemplo) apagava o trabalho dos outros. */
-    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
-    audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num},okEngex);
-    avisaGravacao(okEngex,ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
-  }catch(e){toast("Erro ao salvar: "+e.message);}
+    /* grava SO esta posicao (e, quando há manutenção nova, o extAdd inteiro — não
+       tem como gravar só um item de um array). Antes regravava o mapa inteiro a
+       partir da memoria: um aparelho com estado antigo apagava o trabalho dos outros. */
+    const okCadxAdd=novoSeq?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
+    const okMov=vaiParaManut?await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataHoje(),
+      motivo:"Reserva Engex",posicao:seqOriginal,loc:locOriginal,saiu:numOriginal,entrou:null,
+      divergencia:false,divergAceita:"",
+      inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()})):true;
+    const ok=okCadxAdd&&okEngex&&okMov;
+    audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:numOriginal,...(novoSeq?{foiParaManutencaoComo:novoSeq}:{})},ok);
+    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva Engex — Nº ${numOriginal} foi para manutenção/recarga.`:"🏢 Marcado como reserva Engex."):"✅ Reserva Engex removida.");
+  }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro ao salvar: "+e.message);}
 };
 
 /* Folha de ações do equipamento — o que antes eram quatro pastilhas coloridas soltas */
@@ -1162,7 +1191,8 @@ const IGNORA_CONF_HID=["hSinSolo","hSinAerea"];
 window.confAuto=()=>{
   let nc=false,ncLeve=false;
   if(TIPO==="ext")CHK_EXT.forEach((c,i)=>{const el=$("ck"+i);if(el&&el.value==="NC"){if(IGNORA_CONF.includes(c))ncLeve=true;else nc=true;}});
-  else["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{if($(id).value==="NC"){if(IGNORA_CONF_HID.includes(id))ncLeve=true;else nc=true;}});
+  else{["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{if($(id).value==="NC"){if(IGNORA_CONF_HID.includes(id))ncLeve=true;else nc=true;}});
+    if($("hAbrigo").value==="Não")ncLeve=true;}
   $("confBox").style.borderLeftColor=nc?"var(--nc)":"var(--ok)";
   $("confBox").innerHTML=`Conformidade: <b style="color:${nc?"var(--nc)":"var(--ok)"}">${nc?"NC — Não conforme":"C — Conforme"}</b> (automática pelo checklist)${!nc&&ncLeve?` · NC de acesso/sinalização fica registrada no item, sem alterar o geral`:""}`;
   return nc?"NC":"C";};
@@ -1173,7 +1203,7 @@ window.ajustaCO2=()=>{
   const co2=TIPO==="ext"&&(normAg($("fTipoLocal").value)==="CO2"||(EQ&&normAg(EQ.agp)==="CO2"));
   if(co2){el.value="NA";el.disabled=true;}else el.disabled=false;
   confAuto();};
-["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{document.addEventListener("change",e=>{if(e.target.id===id)confAuto();});});
+["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea","hAbrigo"].forEach(id=>{document.addEventListener("change",e=>{if(e.target.id===id)confAuto();});});
 buildChkExt();confAuto();
 $("fData").value=new Date().toLocaleDateString("pt-BR");
 
@@ -1494,7 +1524,7 @@ window.salvar=async()=>{
   /* qualquer item NC — inclusive acesso/sinalização — exige evidência */
   const ehNC=TIPO==="ext"
     ?CHK_EXT.some((c,i)=>$("ck"+i)&&$("ck"+i).value==="NC")
-    :["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].some(id=>$(id).value==="NC");
+    :["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].some(id=>$(id).value==="NC")||$("hAbrigo").value==="Não";
   if(!$("fFoto1").files[0])return toast("📷 Foto 01 é obrigatória — ela é a evidência da inspeção.");
   if(ehNC&&!$("fFoto2").files[0])return toast("📷 Item não conforme exige a Foto 02 como evidência da NC.");
   if(!validaImagem($("fFoto1").files[0]))return;
@@ -1532,7 +1562,7 @@ window.salvar=async()=>{
         tipoEsguicho:$("hTipoEsg").value,qtdEsguichos:$("hQtdEsg").value,
         mangueiras:$("hMang").value,qtdMangueiras:$("hQtdMang").value,lances:$("hLances").value,
         registro:$("hReg").value,outros:$("hOutros").value,
-        sinSolo:$("hSinSolo").value,sinAerea:$("hSinAerea").value};}
+        sinSolo:$("hSinSolo").value,sinAerea:$("hSinAerea").value,abrigo:$("hAbrigo").value};}
     const ref=doc(collection(db,"inspecoes"));
     const ok=await comTimeout(setDoc(ref,base));
     /* a foto vai para a colecao "fotos", separada do registro: se ela ficar para tras
@@ -1545,6 +1575,7 @@ window.salvar=async()=>{
     ["hQtdStorz","hTipoEsg","hQtdEsg","hQtdMang","hLances","hOutros"].forEach(i=>$(i).value="");
     CHK_EXT.forEach((c,i)=>{if($("ck"+i))$("ck"+i).value="C";});
     ["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(i=>$(i).value="C");
+    $("hAbrigo").value="Sim";
     EQ=null;$("padraoBox").classList.add("hidden");ajustaCO2();
     toast(ok&&okFoto?"✅ Inspeção registrada!"
       :!ok?(window.SEM_GRAVACAO_LOCAL
@@ -1945,6 +1976,7 @@ function situacaoDe(tipo,e){
   if(tipo==="ext"){
     if(ehCondenado(e))return {k:"cond",txt:"Condenado",badge:"b-cond"};
     if(emManutencao(e))return {k:"manut",txt:"Em manutenção",badge:"b-manut"};
+    if(e.engex)return {k:"engex",txt:"Reserva Engex",badge:"b-engex"};
     if(isReserva(e))return {k:"reserva",txt:"Reserva",badge:""};
     return {k:"area",txt:"Em área",badge:""};}
   return {k:"area",txt:"Em área",badge:""};}
@@ -2483,7 +2515,7 @@ window.abrir=async id=>{
   else{const h=i.hid||{};
     detalhe=`<p style="font-size:13.5px;line-height:1.8"><b>Storz:</b> ${h.storz||"—"} (qtd ${h.qtdStorz||"—"}) · <b>Esguichos:</b> ${h.esguichos||"—"} ${h.tipoEsguicho?`(${h.tipoEsguicho}, qtd ${h.qtdEsguichos||"—"})`:""}<br>
     <b>Mangueiras:</b> ${h.mangueiras||"—"} (qtd ${h.qtdMangueiras||"—"}, lances ${h.lances||"—"}) · <b>Registro:</b> ${h.registro||"—"}<br>
-    <b>Sinalização de solo:</b> ${h.sinSolo||"—"} · <b>Sinalização aérea:</b> ${h.sinAerea||"—"}<br>
+    <b>Sinalização de solo:</b> ${h.sinSolo||"—"} · <b>Sinalização aérea:</b> ${h.sinAerea||"—"} · <b>Abrigo lacrado:</b> ${h.abrigo||"—"}<br>
     ${h.outros?`<b>Outros:</b> ${h.outros}`:""}</p>`;}
   const F=await fotosDe(i);
   $("dlgBody").innerHTML=`
@@ -2512,6 +2544,7 @@ window.editarInspecao=async id=>{
   const i=ITENS.find(x=>x.id===id);if(!i)return;
   const FE=await fotosDe(i);
   const opt=v=>`<option${v==="C"?" selected":""}>C</option><option${v==="NC"?" selected":""}>NC</option><option${v==="NA"?" selected":""}>NA</option>`;
+  const optSN=v=>`<option${v!=="Não"?" selected":""}>Sim</option><option${v==="Não"?" selected":""}>Não</option>`;
   let campos="";
   if(i.tipo==="ext"){
     const co2=normAg(i.tipoLocal||"")==="CO2";
@@ -2523,7 +2556,8 @@ window.editarInspecao=async id=>{
       <div class="chk"><span>Visual mangueiras</span><select id="ehMang">${opt(h.mangueiras)}</select></div>
       <div class="chk"><span>Registro do hidrante</span><select id="ehReg">${opt(h.registro)}</select></div>
       <div class="chk"><span>Sinalização de solo</span><select id="ehSinSolo">${opt(h.sinSolo)}</select></div>
-      <div class="chk"><span>Sinalização aérea</span><select id="ehSinAerea">${opt(h.sinAerea)}</select></div>`;
+      <div class="chk"><span>Sinalização aérea</span><select id="ehSinAerea">${opt(h.sinAerea)}</select></div>
+      <div class="chk"><span>Abrigo lacrado</span><select id="ehAbrigo">${optSN(h.abrigo)}</select></div>`;
   }
   const dadosHid=i.tipo==="hid"?`
     <label style="margin-top:14px">🚒 Dados informados na inspeção</label>
@@ -2626,7 +2660,7 @@ window.salvaEdicaoInspecao=async id=>{
       }else{patch.divergencia=false;patch.divergAceita="";patch.diverg=null;}
     }else{
       const hid={...(i.hid||{}),storz:$("ehStorz").value,esguichos:$("ehEsg").value,mangueiras:$("ehMang").value,registro:$("ehReg").value,
-        sinSolo:$("ehSinSolo").value,sinAerea:$("ehSinAerea").value,
+        sinSolo:$("ehSinSolo").value,sinAerea:$("ehSinAerea").value,abrigo:$("ehAbrigo").value,
         qtdStorz:$("ehQtdStorz").value,tipoEsguicho:$("ehTipoEsg").value,qtdEsguichos:$("ehQtdEsg").value,
         qtdMangueiras:$("ehQtdMang").value,lances:$("ehLances").value,outros:$("ehOutros").value};
       const nc=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC");
@@ -3096,7 +3130,9 @@ window.laudoPDF=async()=>{
     if(i.tipo==="ext")return Object.entries(i.checklist||{}).filter(([,v])=>v==="NC").map(([k])=>k);
     const h=i.hid||{},mapa={storz:"Storz",esguichos:"Esguichos",mangueiras:"Mangueiras",registro:"Registro",
       sinSolo:"Sinalização de solo",sinAerea:"Sinalização aérea"};
-    return Object.entries(mapa).filter(([k])=>h[k]==="NC").map(([,v])=>v);};
+    const lista=Object.entries(mapa).filter(([k])=>h[k]==="NC").map(([,v])=>v);
+    if(h.abrigo==="Não")lista.push("Abrigo lacrado");
+    return lista;};
   const todasNC=atual.filter(i=>itensNC(i).length);
   const FNC=new Map();for(const x of todasNC)FNC.set(x.id,await fotosDe(x));
 
@@ -4260,7 +4296,7 @@ const INSP_COLS_EXT=["Local (referência)","Nº cilindro (referência)","Inspeto
 const INSP_COLS_HID=["Patrimônio (referência)","Inspetor (referência)","Data",
   "Adaptador Storz","Qtd. Storz","Esguichos","Tipo esguicho","Qtd. esguichos",
   "Visual mangueiras","Qtd. mangueiras","Tamanho lances","Registro do hidrante",
-  "Sinalização de solo","Sinalização aérea","Outros","Obs","Conformidade (calculada, referência)"];
+  "Sinalização de solo","Sinalização aérea","Abrigo lacrado (Sim/Não)","Outros","Obs","Conformidade (calculada, referência)"];
 window.corrigirInspLote=()=>{
   if(!ISADMIN)return;
   $("dlgBody").innerHTML=`<h3>🛠️ Corrigir inspeções em lote</h3>
@@ -4285,7 +4321,7 @@ window.exportInspLote=async()=>{
     i.tipoLocal??"",i.cargaLocal??"",...CHK_EXT.map(c=>i.checklist?.[c]??""),i.obs??"",i.conformidade??""]));
   else linhas.forEach(i=>{const h=i.hid||{};ws.addRow([i.id,i.eqPat??"",i.inspetor??"",fmtBR(i.data),
     h.storz??"",h.qtdStorz??"",h.esguichos??"",h.tipoEsguicho??"",h.qtdEsguichos??"",
-    h.mangueiras??"",h.qtdMangueiras??"",h.lances??"",h.registro??"",h.sinSolo??"",h.sinAerea??"",
+    h.mangueiras??"",h.qtdMangueiras??"",h.lances??"",h.registro??"",h.sinSolo??"",h.sinAerea??"",h.abrigo??"",
     h.outros??"",i.obs??"",i.conformidade??""]);});
   ws.getRow(1).font={bold:true};ws.columns.forEach(c=>c.width=18);
   await baixaXLSX(wb,`inspecoes_${tq==="ext"?"extintores":"hidrantes"}_${mes}.xlsx`);
@@ -4326,10 +4362,12 @@ window.processaLoteInsp=async()=>{
         campo(off+4,"storz",true);campo(off+5,"qtdStorz");campo(off+6,"esguichos",true);
         campo(off+7,"tipoEsguicho");campo(off+8,"qtdEsguichos");campo(off+9,"mangueiras",true);
         campo(off+10,"qtdMangueiras");campo(off+11,"lances");campo(off+12,"registro",true);
-        campo(off+13,"sinSolo",true);campo(off+14,"sinAerea",true);campo(off+15,"outros");
+        campo(off+13,"sinSolo",true);campo(off+14,"sinAerea",true);
+        const av=cellStr(row.getCell(off+15).value);if(av){hid.abrigo=/^n/i.test(av)?"Não":"Sim";tocouHid=true;}
+        campo(off+16,"outros");
         if(tocouHid){patch.hid=hid;
           patch.conformidade=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC")?"NC":"C";mexeu=true;}
-        const obs=cellStr(row.getCell(off+16).value);if(obs){patch.obs=obs;mexeu=true;}
+        const obs=cellStr(row.getCell(off+17).value);if(obs){patch.obs=obs;mexeu=true;}
         if(data){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
       }
       if(!mexeu)return;
@@ -4440,21 +4478,21 @@ window.exportXLSX=async tipo=>{
       r++;}
     await blocoAssinaturas(wb,ws,r,new Set(mesArr.map(i=>i.inspetor).filter(Boolean)));
     await ws.protect("papirus",{selectLockedCells:true,selectUnlockedCells:true,formatColumns:true,formatRows:true});
-    /* Aba com as substituições por reserva (recargas) do mês */
+    /* Aba com as substituições por reserva (recargas) e marcações de reserva Engex do mês */
     const wsM=wb.addWorksheet("Substituições");
-    wsM.addRow(["Data","Posição (Seq.)","Localização","Saiu Nº","Entrou Nº","Divergência","Responsável"]);
+    wsM.addRow(["Data","Motivo","Posição (Seq.)","Localização","Saiu Nº","Entrou Nº","Divergência","Responsável"]);
     wsM.getRow(1).font={bold:true};
-    setWidths(wsM,{A:12,B:13,C:40,D:12,E:12,F:16,G:24});
+    setWidths(wsM,{A:12,B:16,C:13,D:40,E:12,F:12,G:16,H:24});
     const movsMes=MOVS.filter(m=>String(m.data||"").slice(0,7)===pm);
-    if(movsMes.length)movsMes.forEach(m=>wsM.addRow([fmtBR(m.data),m.posicao,m.loc||"",m.saiu??"",m.entrou??"",m.divergencia?`Sim (${m.divergAceita||""})`:"Não",m.inspetor||""]));
+    if(movsMes.length)movsMes.forEach(m=>wsM.addRow([fmtBR(m.data),m.motivo||"Troca por reserva",m.posicao,m.loc||"",m.saiu??"",m.entrou??"",m.divergencia?`Sim (${m.divergAceita||""})`:"Não",m.inspetor||""]));
     else wsM.addRow(["Nenhuma substituição registrada no mês."]);
   }else{
     const ws=wb.addWorksheet("Padrão");
-    cabecalho(ws,"Relatório de Inspeção de Hidrantes ",29,pm,hoje);
-    const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio Novo","Tipo","Capacidade","Fabricação","Fabricante","Localização Nova","Prox. Manutenção","Prox. T. Hidrostático","Data da Inspeção","Adaptador Storz","Quantidade de Storz","Esguichos ","Tipo de Esguicho","Quantidade de Esguichos","","Visual Mangueiras","Quantidade de Mangueiras ","Tamanho dos Lances de mangueiras","Sinalização de Solo","Sinalização Aérea","Registros dos Hidrantes","Conformidade","Outros","Obs","Foto 01","Foto 02"];
+    cabecalho(ws,"Relatório de Inspeção de Hidrantes ",30,pm,hoje);
+    const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio Novo","Tipo","Capacidade","Fabricação","Fabricante","Localização Nova","Prox. Manutenção","Prox. T. Hidrostático","Data da Inspeção","Adaptador Storz","Quantidade de Storz","Esguichos ","Tipo de Esguicho","Quantidade de Esguichos","","Visual Mangueiras","Quantidade de Mangueiras ","Tamanho dos Lances de mangueiras","Sinalização de Solo","Sinalização Aérea","Registros dos Hidrantes","Abrigo Lacrado","Conformidade","Outros","Obs","Foto 01","Foto 02"];
     cols.forEach((c,i)=>{const cell=ws.getRow(9).getCell(i+1);cell.value=c;headerCell(cell,false);});
     ws.getRow(9).height=29;
-    setWidths(ws,{A:9.2,B:14.7,C:17,D:12.5,E:9,F:12.8,G:11,H:10.7,I:18.7,J:15.1,K:15.1,L:13.5,M:11.5,N:12.5,O:11.5,P:12,Q:14.8,R:13,S:13.8,T:16.8,U:19.7,V:13,W:13,X:14.7,Y:12,Z:11.5,AA:20,AB:11.5,AC:10.8});
+    setWidths(ws,{A:9.2,B:14.7,C:17,D:12.5,E:9,F:12.8,G:11,H:10.7,I:18.7,J:15.1,K:15.1,L:13.5,M:11.5,N:12.5,O:11.5,P:12,Q:14.8,R:13,S:13.8,T:16.8,U:19.7,V:13,W:13,X:14.7,Y:12,Z:12,AA:11.5,AB:20,AC:11.5,AD:10.8});
     ws.views=[{state:"frozen",ySplit:9}];
     let r=10;
     for(const e of CAD.hid){
@@ -4464,14 +4502,14 @@ window.exportXLSX=async tipo=>{
       row.values=[e.seq,"Hidrante",insp?.inspetor||"",e.pat||"",e.tipo??"",e.cap??"",e.fab??"",e.fabricante||"",e.loc||"",
         toDate(e.man),toDate(e.th),insp?toDate(insp.data):"",
         h.storz||"",h.qtdStorz||"",h.esguichos||"",h.tipoEsguicho||"",h.qtdEsguichos||"","",
-        h.mangueiras||"",h.qtdMangueiras||"",h.lances||"",h.sinSolo||"",h.sinAerea||"",h.registro||"",
+        h.mangueiras||"",h.qtdMangueiras||"",h.lances||"",h.sinSolo||"",h.sinAerea||"",h.registro||"",h.abrigo||"",
         insp?.conformidade||"",h.outros||"",insp?.obs||""];
       ws.getCell(r,10).numFmt="mmm-yy";ws.getCell(r,11).numFmt="mmm-yy";ws.getCell(r,12).numFmt="dd/mm/yyyy";
-      row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>29)return;dataCell(cell,false,false);
-        if(cn===25&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
+      row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>30)return;dataCell(cell,false,false);
+        if(cn===26&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
       const FH=await fotosDe(insp);
-      if(FH.foto1)addFoto(wb,ws,FH.foto1,28,r);
-      if(FH.foto2)addFoto(wb,ws,FH.foto2,29,r);
+      if(FH.foto1)addFoto(wb,ws,FH.foto1,29,r);
+      if(FH.foto2)addFoto(wb,ws,FH.foto2,30,r);
       r++;}
     await blocoAssinaturas(wb,ws,r,new Set(mesArr.map(i=>i.inspetor).filter(Boolean)));
   }
