@@ -481,6 +481,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <button class="btn sec adminOnly hidden" onclick="corrigirLote()">🛠️ Corrigir em lote</button>
  <button class="btn sec adminOnly hidden" onclick="corrigirInspLote()">🛠️ Corrigir inspeções em lote</button>
  <button class="btn sec adminOnly hidden" onclick="revisarReservas()">🧹 Revisar pool de reserva</button>
+ <button class="btn sec adminOnly hidden" onclick="migrarEngexAntigos()">🔄 Migrar reservas Engex antigas p/ manutenção</button>
  <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
  </div>
  </div>
@@ -1140,6 +1141,58 @@ window.toggleEngex=async()=>{
     avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva Engex — Nº ${numOriginal} foi para manutenção/recarga.`:"🏢 Marcado como reserva Engex."):"✅ Reserva Engex removida.");
   }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro ao salvar: "+e.message);}
 };
+/* ---------- Migração retroativa: reservas Engex marcadas ANTES desta correção
+   nunca mandaram o cilindro original para a lista de manutenção. Ferramenta de
+   uso único — depois que todas as marcações antigas passarem por aqui, a lista
+   de candidatos fica vazia e o botão não tem mais o que fazer. ---------- */
+window.migrarEngexAntigos=()=>{
+  if(!ISADMIN)return;
+  const jaMigrados=new Set(CAD.ext.filter(x=>x.manut&&x.manutDe!=null).map(x=>String(x.manutDe)));
+  const candidatos=CAD.ext.filter(e=>e.engex&&!isReserva(e)&&!jaMigrados.has(String(e.seq)));
+  if(!candidatos.length)return _dlgAbre(`<h3>🔄 Migrar reservas Engex antigas</h3><p>Nenhum local marcado como reserva Engex está sem a migração — não há nada para corrigir aqui.</p>`);
+  $("dlgBody").innerHTML=`<h3>🔄 Migrar reservas Engex antigas para manutenção</h3>
+    <p style="font-size:13px;line-height:1.7">Estes locais foram marcados como reserva Engex antes da correção de hoje, então o cilindro que saiu nunca entrou na lista de manutenção/recarga. <b>Confira o Nº de cada um antes de confirmar:</b> se você já atualizou algum deles com o número do cilindro emprestado (em "Verificar nº do local"), <b>desmarque-o</b> — senão o app vai mandar esse número emprestado para a manutenção por engano, em vez do original.</p>
+    <div style="max-height:320px;overflow-y:auto;margin-top:8px">
+    ${candidatos.map(e=>`<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #eee">
+      <input type="checkbox" class="migEngex" value="${esc(String(e.seq))}" checked style="margin-top:3px">
+      <span>Ext ${esc(String(e.seq))} — ${esc(e.loc||"")}<br><small style="color:var(--cinza)">Nº atual: ${esc(String(e.num??"—"))} · reserva Engex desde ${fmtBR(e.engexDesde)}</small></span></label>`).join("")}
+    </div>
+    <button class="btn" onclick="confirmaMigraEngexAntigos()">🔄 Migrar os marcados</button>
+    <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
+  $("dlg").showModal();};
+window.confirmaMigraEngexAntigos=async()=>{
+  if(!podeGravar())return;
+  const seqs=[...document.querySelectorAll(".migEngex:checked")].map(el=>el.value);
+  if(!seqs.length)return toast("Nenhum item selecionado.");
+  const ovrAntes=JSON.parse(JSON.stringify(OVR)),cadxAntes=JSON.parse(JSON.stringify(CADX));
+  const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
+  const patch={},registrados=[];
+  for(const s of seqs){
+    const e=CAD.ext.find(x=>String(x.seq)===s);if(!e||!e.num)continue;
+    const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=e[c]??null;});
+    const novoSeq=proxSeqReserva();
+    CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||""};
+    patch[String(novoSeq)]=OVR[String(novoSeq)];
+    OVR[s]={...OVR[s]};CAMPOS.forEach(c=>{OVR[s][c]=null;});
+    patch[s]=OVR[s];
+    registrados.push({seqOrigem:e.seq,loc:e.loc||"",num:doEQ.num});}
+  if(!registrados.length){$("dlg").close();return toast("Nada para migrar — os itens marcados não têm Nº de cilindro.");}
+  try{
+    const okCadxAdd=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
+    let okMov=true;
+    for(const r of registrados){
+      const ok1=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataHoje(),
+        motivo:"Reserva Engex (retroativo)",posicao:r.seqOrigem,loc:r.loc,saiu:r.num,entrou:null,
+        divergencia:false,divergAceita:"",inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
+      if(!ok1)okMov=false;}
+    const ok=okCadxAdd&&okEngex&&okMov;
+    audit("migrar_engex_retroativo",{qtd:registrados.length,seqs:registrados.map(r=>r.seqOrigem)},ok);
+    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    $("dlg").close();
+    avisaGravacao(ok,`✅ ${registrados.length} equipamento(s) migrado(s) para manutenção/recarga.`);
+  }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro na migração: "+e.message);}};
 
 /* Folha de ações do equipamento — o que antes eram quatro pastilhas coloridas soltas */
 window.acoesEquip=()=>{
