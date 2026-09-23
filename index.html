@@ -450,6 +450,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <option value="area">Em área</option>
  <option value="reserva">Reserva</option>
  <option value="manut">Em manutenção</option>
+ <option value="engex">Reserva Engex</option>
  <option value="cond">Condenados</option>
  </select>
  <select id="eqOrd" onchange="renderEquip()" aria-label="Ordenação">
@@ -1100,19 +1101,44 @@ function mostraPadrao(){
 window.toggleEngex=async()=>{
   if(!EQ||TIPO!=="ext"||isReserva(EQ))return;
   const ligando=!EQ.engex;
+  const numOriginal=EQ.num,locOriginal=EQ.loc||"",seqOriginal=EQ.seq;
+  const vaiParaManut=ligando&&!!numOriginal;
   const msg=ligando
-    ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela Engex?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da Engex até a manutenção do seu retornar. Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`
+    ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela Engex?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da Engex até a manutenção do seu retornar.${vaiParaManut?`\n\nO Nº ${numOriginal} (o que estava aqui) vai automaticamente para "equipamento em manutenção/recarga", e este local fica sem número até você informar o do cilindro emprestado em "Verificar nº do local".`:` Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`}`
     :`Desmarcar a reserva Engex deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
   if(!confirm(msg))return;
-  const seq=String(EQ.seq);
-  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?new Date().toISOString().slice(0,10):""};
+  const seq=String(seqOriginal);
+  const ovrAntes=JSON.parse(JSON.stringify(OVR)),cadxAntes=JSON.parse(JSON.stringify(CADX));
+  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?dataHoje():""};
+  const patch={[seq]:OVR[seq]};
+  let novoSeq=null;
+  if(vaiParaManut){
+    /* o cilindro que estava aqui "vira" uma posição de reserva nova, marcada em
+       manutenção — mesma lógica de "Substituir por reserva (recarga)", só que sem
+       um reserva pronto para entrar no lugar (por isso o local fica sem número). */
+    const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
+    const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;});
+    novoSeq=proxSeqReserva();
+    CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal};
+    patch[String(novoSeq)]=OVR[String(novoSeq)];
+    CAMPOS.forEach(c=>{OVR[seq][c]=null;});
+  }
   try{
-    /* grava SO esta posicao. Antes regravava o mapa inteiro a partir da memoria:
-       um aparelho com estado antigo (offline, por exemplo) apagava o trabalho dos outros. */
-    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
-    audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:EQ.num},okEngex);
-    avisaGravacao(okEngex,ligando?"🏢 Marcado como reserva Engex.":"✅ Reserva Engex removida.");
-  }catch(e){toast("Erro ao salvar: "+e.message);}
+    /* grava SO esta posicao (e, quando há manutenção nova, o extAdd inteiro — não
+       tem como gravar só um item de um array). Antes regravava o mapa inteiro a
+       partir da memoria: um aparelho com estado antigo apagava o trabalho dos outros. */
+    const okCadxAdd=novoSeq?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
+    const okMov=vaiParaManut?await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataHoje(),
+      motivo:"Reserva Engex",posicao:seqOriginal,loc:locOriginal,saiu:numOriginal,entrou:null,
+      divergencia:false,divergAceita:"",
+      inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()})):true;
+    const ok=okCadxAdd&&okEngex&&okMov;
+    audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:numOriginal,...(novoSeq?{foiParaManutencaoComo:novoSeq}:{})},ok);
+    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva Engex — Nº ${numOriginal} foi para manutenção/recarga.`:"🏢 Marcado como reserva Engex."):"✅ Reserva Engex removida.");
+  }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro ao salvar: "+e.message);}
 };
 
 /* Folha de ações do equipamento — o que antes eram quatro pastilhas coloridas soltas */
@@ -1950,6 +1976,7 @@ function situacaoDe(tipo,e){
   if(tipo==="ext"){
     if(ehCondenado(e))return {k:"cond",txt:"Condenado",badge:"b-cond"};
     if(emManutencao(e))return {k:"manut",txt:"Em manutenção",badge:"b-manut"};
+    if(e.engex)return {k:"engex",txt:"Reserva Engex",badge:"b-engex"};
     if(isReserva(e))return {k:"reserva",txt:"Reserva",badge:""};
     return {k:"area",txt:"Em área",badge:""};}
   return {k:"area",txt:"Em área",badge:""};}
@@ -4451,13 +4478,13 @@ window.exportXLSX=async tipo=>{
       r++;}
     await blocoAssinaturas(wb,ws,r,new Set(mesArr.map(i=>i.inspetor).filter(Boolean)));
     await ws.protect("papirus",{selectLockedCells:true,selectUnlockedCells:true,formatColumns:true,formatRows:true});
-    /* Aba com as substituições por reserva (recargas) do mês */
+    /* Aba com as substituições por reserva (recargas) e marcações de reserva Engex do mês */
     const wsM=wb.addWorksheet("Substituições");
-    wsM.addRow(["Data","Posição (Seq.)","Localização","Saiu Nº","Entrou Nº","Divergência","Responsável"]);
+    wsM.addRow(["Data","Motivo","Posição (Seq.)","Localização","Saiu Nº","Entrou Nº","Divergência","Responsável"]);
     wsM.getRow(1).font={bold:true};
-    setWidths(wsM,{A:12,B:13,C:40,D:12,E:12,F:16,G:24});
+    setWidths(wsM,{A:12,B:16,C:13,D:40,E:12,F:12,G:16,H:24});
     const movsMes=MOVS.filter(m=>String(m.data||"").slice(0,7)===pm);
-    if(movsMes.length)movsMes.forEach(m=>wsM.addRow([fmtBR(m.data),m.posicao,m.loc||"",m.saiu??"",m.entrou??"",m.divergencia?`Sim (${m.divergAceita||""})`:"Não",m.inspetor||""]));
+    if(movsMes.length)movsMes.forEach(m=>wsM.addRow([fmtBR(m.data),m.motivo||"Troca por reserva",m.posicao,m.loc||"",m.saiu??"",m.entrou??"",m.divergencia?`Sim (${m.divergAceita||""})`:"Não",m.inspetor||""]));
     else wsM.addRow(["Nenhuma substituição registrada no mês."]);
   }else{
     const ws=wb.addWorksheet("Padrão");
