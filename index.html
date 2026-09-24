@@ -180,6 +180,9 @@ dialog::backdrop{background:rgba(50,10,10,.5);backdrop-filter:blur(3px)}
 .ac-item:last-child{border-bottom:none}
 .ac-item:hover,.ac-item:active{background:var(--claro)}
 .ac-empty{padding:11px 12px;font-size:13px;color:var(--cinza2)}
+.cg-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.cg-chip{border:1.5px solid var(--borda);background:#fff;border-radius:20px;padding:5px 12px;font-size:12.5px;color:var(--vinho);cursor:pointer}
+.cg-chip:active{background:var(--claro)}
 .limpa{position:absolute;right:4px;top:2px;border:none;background:transparent;border-radius:50%;width:44px;height:44px;cursor:pointer;color:var(--cinza);font-weight:700;font-size:15px;display:none;line-height:1}
 .limpa::before{content:'';position:absolute;left:9px;top:9px;width:26px;height:26px;border-radius:50%;background:#eee;z-index:-1}
 .limpa:hover{background:#e2caca;color:var(--vinho)}
@@ -996,6 +999,11 @@ function labelEq(e){return TIPO==="ext"
   ?`Ext ${e.seq} · Nº ${e.num??"—"} · ${e.agp||"?"} ${e.cgp||""} · ${e.loc||""}`
   :`${e.pat} · ${e.loc||""}`;}
 /* ---------- Busca com lista suspensa (funciona no celular, ao contrário do datalist nativo) ---------- */
+/* Mesma razão da lista suspensa acima: no celular o datalist nativo espreme as opções
+   numa faixinha em cima do teclado. Lista curta e fixa, então em vez de repetir a
+   busca inteira, são botõezinhos — clica e preenche, mas o campo continua livre pra digitar. */
+const CARGAS_PADRAO=["4 Kg","4,5 Kg","6 Kg","8 Kg","12 Kg","20 Kg","10 Lt","75 Lt"];
+const chipsCarga=inputId=>`<div class="cg-chips">${CARGAS_PADRAO.map(c=>`<button type="button" class="cg-chip" onclick="$('${inputId}').value='${c}'">${c}</button>`).join("")}</div>`;
 /* Uma linha em negrito com a identificação e uma linha cinza cortada com o resto —
    a localização tem 53 caracteres em média e chega a 96 no cadastro. */
 function itemBusca(e){
@@ -2655,8 +2663,7 @@ window.editarInspecao=async id=>{
     ${pos?`<p style="font-size:12px;color:var(--cinza);margin:2px 0 6px">Padrão do local ${i.eqSeq}: <b>${esc(pos.agp||"—")} ${esc(pos.cgp||"")}</b></p>`:""}
     <div class="row">
       <div><label>Agente no local</label><select id="eAg">${optAg}</select></div>
-      <div><label>Carga no local</label><input id="eCg" list="eCargas" value="${esc(String(i.cargaLocal??""))}" placeholder="ex.: 6 Kg">
-        <datalist id="eCargas"><option>4 Kg</option><option>4,5 Kg</option><option>6 Kg</option><option>8 Kg</option><option>12 Kg</option><option>20 Kg</option><option>10 Lt</option><option>75 Lt</option></datalist></div>
+      <div><label>Carga no local</label><input id="eCg" value="${esc(String(i.cargaLocal??""))}" placeholder="ex.: 6 Kg">${chipsCarga("eCg")}</div>
     </div>
     <div id="eDivBox"></div>`:"";
   $("dlgBody").innerHTML=`<h3>✏️ Corrigir inspeção</h3>
@@ -3735,8 +3742,7 @@ window.novoLocal=()=>{
       <div><label>Padrão de agente</label>
         <select id="nlAgp"><option>CO2</option><option>AP</option><option>BC</option><option>ABC</option><option>EM</option><option>PQS BC</option><option>PQS ABC</option></select></div>
       <div><label>Padrão de carga</label>
-        <input id="nlCgp" list="nlCargas" placeholder="ex.: 6 Kg">
-        <datalist id="nlCargas"><option>4 Kg</option><option>4,5 Kg</option><option>6 Kg</option><option>8 Kg</option><option>12 Kg</option><option>20 Kg</option><option>10 Lt</option><option>75 Lt</option></datalist></div>
+        <input id="nlCgp" placeholder="ex.: 6 Kg">${chipsCarga("nlCgp")}</div>
     </div>
     <label>Patrimônio (opcional — em branco usa o próprio ID)</label>
     <input id="nlPat" placeholder="em branco = ${sugerido}">
@@ -4040,16 +4046,52 @@ window.confirmaAlteraPatHid=async()=>{
   }catch(e){CADX=cadxAntes;aplicaOvr();toast("Erro ao trocar o patrimônio, nada foi alterado: "+e.message);}};
 window.editarEquip=()=>{
   if(!ISADMIN)return;
+  window._admEscolhido=null;
   $("dlgBody").innerHTML=`<h3>✏️ Editar / remover equipamento</h3>
-    <label>Equipamento</label><input id="admBusca" list="dlEquipAdm" placeholder="Digite p/ buscar…">
-    <datalist id="dlEquipAdm">${CAD.ext.map(e=>`<option value="EXT ${e.seq} · Nº ${e.num??"—"} · ${esc(e.loc||"")}">`).join("")}${CAD.hid.map(h=>`<option value="HID ${h.pat} · ${esc(h.loc||"")}">`).join("")}</datalist>
+    <label>Equipamento</label>
+    <div class="ac-wrap">
+    <input id="admBusca" autocomplete="off" placeholder="Digite nº, patrimônio ou localização…" oninput="filtraEquipAdm()" onfocus="filtraEquipAdm()">
+    <div id="dlEquipAdm" class="autocomplete-list hidden" role="listbox" aria-label="Equipamentos encontrados"></div>
+    </div>
     <button class="btn" onclick="abreEdicaoEquip()">Abrir</button><button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
+function itemBuscaAdm(t,e){
+  if(t==="hid")return `<span class="t">HID ${esc(String(e.pat))}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;
+  const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`
+    :(emManutencao(e)?` <span class="badge b-manut">🔧 EM MANUTENÇÃO</span>`
+    :(e.engex?` <span class="badge b-engex">🏢 ENGEX</span>`:""));
+  return isReserva(e)
+    ?`<span class="t">Reserva ${esc(String(e.seq))} · Nº ${esc(String(e.num??"—"))}${selo}</span><span class="s">pool de reserva</span>`
+    :`<span class="t">EXT ${esc(String(e.seq))} · Nº ${esc(String(e.num??"—"))}${selo}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;}
+window.filtraEquipAdm=()=>{
+  const v=$("admBusca").value.trim().toLowerCase();
+  const list=$("dlEquipAdm");
+  window._admEscolhido=null;
+  if(!v){list.classList.add("hidden");list.innerHTML="";return;}
+  const digitos=/^\d+$/.test(v);
+  const matchExt=CAD.ext.filter(e=>digitos
+    ?String(e.num??"").startsWith(v)||String(e.seq??"").startsWith(v)
+    :`ext ${e.seq} ${e.num??""} ${e.loc??""}`.toLowerCase().includes(v)).slice(0,15);
+  const matchHid=CAD.hid.filter(h=>digitos
+    ?String(h.pat??"").replace(/\D/g,"").startsWith(v)
+    :`hid ${h.pat} ${h.loc??""}`.toLowerCase().includes(v)).slice(0,15);
+  if(!matchExt.length&&!matchHid.length){list.innerHTML=`<div class="ac-empty">Nenhum equipamento encontrado.</div>`;list.classList.remove("hidden");return;}
+  const linhaExt=e=>`<div class="ac-item" role="option" tabindex="0" onclick="escolheEquipAdm('ext','${String(e.seq).replace(/'/g,"\\'")}')">${itemBuscaAdm("ext",e)}</div>`;
+  const linhaHid=h=>`<div class="ac-item" role="option" tabindex="0" onclick="escolheEquipAdm('hid','${String(h.pat).replace(/'/g,"\\'")}')">${itemBuscaAdm("hid",h)}</div>`;
+  list.innerHTML=(matchExt.length?`<div class="ac-head">Extintores (${matchExt.length})</div>`+matchExt.map(linhaExt).join(""):"")
+    +(matchHid.length?`<div class="ac-head">Hidrantes (${matchHid.length})</div>`+matchHid.map(linhaHid).join(""):"");
+  list.classList.remove("hidden");};
+window.escolheEquipAdm=(t,chave)=>{
+  window._admEscolhido={t,chave};
+  const arr=t==="ext"?CAD.ext:CAD.hid;
+  const e=arr.find(x=>String(t==="ext"?x.seq:x.pat)===String(chave));
+  $("admBusca").value=e?(t==="ext"?`EXT ${e.seq} · Nº ${e.num??"—"} · ${e.loc||""}`:`HID ${e.pat} · ${e.loc||""}`):"";
+  $("dlEquipAdm").classList.add("hidden");$("dlEquipAdm").innerHTML="";};
+document.addEventListener("click",e=>{if(!e.target.closest(".ac-wrap")&&$("dlEquipAdm"))$("dlEquipAdm").classList.add("hidden");});
 window.abreEdicaoEquip=()=>{
-  const v=$("admBusca").value;
-  if(v.startsWith("EXT "))abreEdicaoExtSeq(v.split("·")[0].replace("EXT","").trim());
-  else if(v.startsWith("HID "))abreEdicaoHidPat(v.split("·")[0].replace("HID","").trim());
-  else toast("Selecione um item da lista.");};
+  const esco=window._admEscolhido;
+  if(!esco)return toast("Selecione um item da lista.");
+  if(esco.t==="ext")abreEdicaoExtSeq(esco.chave);else abreEdicaoHidPat(esco.chave);};
 /* Edição individual direto do quadro do equipamento (admin) */
 window.editarEquipAtual=()=>{
   if(!ISADMIN)return toast("Apenas o administrador pode editar o cadastro.");
@@ -4356,7 +4398,7 @@ window.corrigirInspLote=()=>{
     ${seletorLoteTipo}
     <label style="margin-top:8px">Mês</label>
     <select id="lMesInsp">${$("pMes").innerHTML}</select>
-    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe as inspeções do mês.<br>2) Corrija o que precisar — <b>não altere a 1ª coluna</b> (ID, é a chave). Célula em branco = mantém o valor atual.<br>3) As colunas "(referência)" e a Conformidade são só pra te situar — mudá-las não tem efeito; pra trocar inspetor ou equipamento de uma inspeção, use "✏️ Corrigir inspeção" na ficha dela.<br>4) Envie o arquivo corrigido e toque em Aplicar.</p>
+    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe as inspeções do mês.<br>2) Corrija o que precisar — <b>não altere a 1ª coluna</b> (ID, é a chave) e <b>não ordene nem filtre as linhas</b> no Excel, pra não desalinhar o ID com os dados da linha errada. Célula em branco = mantém o valor atual; célula com o mesmo valor de antes é ignorada (só o que realmente mudou é gravado).<br>3) As colunas "(referência)" e a Conformidade são só pra te situar — mudá-las não tem efeito; pra trocar inspetor ou equipamento de uma inspeção, use "✏️ Corrigir inspeção" na ficha dela.<br>4) Envie o arquivo corrigido e toque em Aplicar.</p>
     <button class="btn sec" onclick="exportInspLote()">⬇️ Baixar inspeções do mês (.xlsx)</button>
     <label>Arquivo corrigido (.xlsx)</label><input id="lFileInsp" type="file" accept=".xlsx">
     <button class="btn" onclick="processaLoteInsp()">🛠️ Aplicar correções</button>
@@ -4399,29 +4441,34 @@ window.processaLoteInsp=async()=>{
       if(tq==="ext"){
         const data=paraISO(row.getCell(off+4).value);
         const ag=cellStr(row.getCell(off+5).value),cg=cellStr(row.getCell(off+6).value);
-        if(ag){patch.tipoLocal=ag;mexeu=true;}
-        if(cg){patch.cargaLocal=cg;mexeu=true;}
+        if(ag&&ag!==(i.tipoLocal||"")){patch.tipoLocal=ag;mexeu=true;}
+        if(cg&&cg!==(i.cargaLocal||"")){patch.cargaLocal=cg;mexeu=true;}
         const checklist={...(i.checklist||{})};let tocouChk=false;
         CHK_EXT.forEach((c,idx)=>{const v=cellStr(row.getCell(off+7+idx).value).toUpperCase();
-          if(v&&["C","NC","NA"].includes(v)){checklist[c]=v;tocouChk=true;}});
+          if(v&&["C","NC","NA"].includes(v)&&v!==(checklist[c]||"")){checklist[c]=v;tocouChk=true;}});
         if(tocouChk){patch.checklist=checklist;patch.conformidade=calcConfExt(checklist);mexeu=true;}
-        const obs=cellStr(row.getCell(off+15).value);if(obs){patch.obs=obs;mexeu=true;}
-        if(data){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
+        const obs=cellStr(row.getCell(off+15).value);if(obs&&obs!==(i.obs||"")){patch.obs=obs;mexeu=true;}
+        if(data&&data!==(i.data||"")){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
       }else{
         const data=paraISO(row.getCell(off+3).value);
-        const hid={...(i.hid||{})};let tocouHid=false;
-        const campo=(col,chave,upper)=>{const v=cellStr(row.getCell(col).value);
-          if(v){hid[chave]=upper?v.toUpperCase():v;tocouHid=true;}};
-        campo(off+4,"storz",true);campo(off+5,"qtdStorz");campo(off+6,"esguichos",true);
-        campo(off+7,"tipoEsguicho");campo(off+8,"qtdEsguichos");campo(off+9,"mangueiras",true);
-        campo(off+10,"qtdMangueiras");campo(off+11,"lances");campo(off+12,"registro",true);
+        const hid={...(i.hid||{})};let tocouHid=false,tocouConf=false;
+        const campo=(col,chave,upper,conf)=>{const v=cellStr(row.getCell(col).value);
+          if(!v)return;const novo=upper?v.toUpperCase():v;
+          if(novo!==(hid[chave]||"")){hid[chave]=novo;tocouHid=true;if(conf)tocouConf=true;}};
+        campo(off+4,"storz",true,true);campo(off+5,"qtdStorz");campo(off+6,"esguichos",true,true);
+        campo(off+7,"tipoEsguicho");campo(off+8,"qtdEsguichos");campo(off+9,"mangueiras",true,true);
+        campo(off+10,"qtdMangueiras");campo(off+11,"lances");campo(off+12,"registro",true,true);
         campo(off+13,"sinSolo",true);campo(off+14,"sinAerea",true);
-        const av=cellStr(row.getCell(off+15).value);if(av){hid.abrigo=/^n/i.test(av)?"Não":"Sim";tocouHid=true;}
+        const av=cellStr(row.getCell(off+15).value);
+        if(av){const novoAbrigo=/^n/i.test(av)?"Não":"Sim";if(novoAbrigo!==(hid.abrigo||"Sim")){hid.abrigo=novoAbrigo;tocouHid=true;}}
         campo(off+16,"outros");
         if(tocouHid){patch.hid=hid;
-          patch.conformidade=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC")?"NC":"C";mexeu=true;}
-        const obs=cellStr(row.getCell(off+17).value);if(obs){patch.obs=obs;mexeu=true;}
-        if(data){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
+          /* só recalcula a conformidade se um dos 4 itens que realmente pesam nela mudou —
+             abrigo, quantidades e observações não devem "reabrir" a conformidade do registro */
+          if(tocouConf)patch.conformidade=[hid.storz,hid.esguichos,hid.mangueiras,hid.registro].includes("NC")?"NC":"C";
+          mexeu=true;}
+        const obs=cellStr(row.getCell(off+17).value);if(obs&&obs!==(i.obs||"")){patch.obs=obs;mexeu=true;}
+        if(data&&data!==(i.data||"")){patch.data=data;patch.mes=data.slice(0,7);mexeu=true;}
       }
       if(!mexeu)return;
       lote.update(doc(db,"inspecoes",id),patch);n++;});
