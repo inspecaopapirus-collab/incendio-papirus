@@ -4460,7 +4460,7 @@ window.processaLoteInsp=async()=>{
         campo(off+10,"qtdMangueiras");campo(off+11,"lances");campo(off+12,"registro",true,true);
         campo(off+13,"sinSolo",true);campo(off+14,"sinAerea",true);
         const av=cellStr(row.getCell(off+15).value);
-        if(av){const novoAbrigo=/^n/i.test(av)?"Não":"Sim";if(novoAbrigo!==(hid.abrigo||"Sim")){hid.abrigo=novoAbrigo;tocouHid=true;}}
+        if(av){const novoAbrigo=/^n/i.test(av)?"Não":"Sim";if(novoAbrigo!==hid.abrigo){hid.abrigo=novoAbrigo;tocouHid=true;}}
         campo(off+16,"outros");
         if(tocouHid){patch.hid=hid;
           /* só recalcula a conformidade se um dos 4 itens que realmente pesam nela mudou —
