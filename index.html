@@ -3805,6 +3805,16 @@ const seqsComHistoricoExt=()=>{
   MOVS.forEach(m=>{if(m.posicao!=null)s.add(+m.posicao);});
   CONDS.forEach(c=>{if(c.seqOrigem!=null)s.add(+c.seqOrigem);});
   return s;};
+/* Checagem completa, direto no banco — a de cima usa ITENS, que só guarda as 400
+   inspeções mais recentes (ver LIMITE_INSP); um ID com inspeção só em mês antigo,
+   fora dessa janela, passaria pela checagem de cima como "sem histórico". Usada
+   sempre que uma troca de ID/patrimônio vai GRAVAR de verdade, não só na tela. */
+async function temInspecaoNoBanco(tipo,campo,valor){
+  try{
+    const snap=await getDocs(query(collection(db,"inspecoes"),where(campo,"==",valor)));
+    return snap.docs.some(d=>d.data().tipo===tipo);
+  }catch(e){return true;} /* consulta falhou: mais seguro recusar a troca do que arriscar */
+}
 /* extDel entra aqui para o "proximo ID livre" nao cair sozinho num ID removido:
    quem quiser reaproveitar um ID removido informa o numero na mao, e ai a remocao
    e desfeita de proposito (ver alinhaOvrNovaPosicao). */
@@ -3952,6 +3962,8 @@ window.confirmaAlteraId=async()=>{
     return toast(`O ID ${novo} j\u00e1 est\u00e1 em uso${dono?` (${isReserva(dono)?"Reserva":"Ext "+novo}, N\u00ba ${dono.num??"\u2014"})`:""}. Livres: ${idsLivresParaId().slice(0,15).join(", ")||"nenhum"}.`);}
   if(seqsComHistoricoExt().has(n))
     return toast(`O ID ${novo} j\u00e1 teve equipamento com hist\u00f3rico gravado e n\u00e3o pode ser reaproveitado.`);
+  if(await temInspecaoNoBanco("ext","eqSeq",+atual))
+    return toast(`O ID ${atual} tem inspe\u00e7\u00e3o registrada em algum m\u00eas \u2014 n\u00e3o d\u00e1 para renome\u00e1-lo.`);
   const base={...CAD.ext.find(x=>String(x.seq)===atual)};
   if(base.seq==null)return toast("Equipamento n\u00e3o encontrado \u2014 recarregue a tela.");
   if(!confirm(`Trocar o ID ${atual} por ${novo}?\n\n\u26a0\ufe0f A etiqueta DESTE local precisa ser reimpressa. Nenhum outro local \u00e9 renumerado.`))return;
@@ -4027,6 +4039,8 @@ window.confirmaAlteraPatHid=async()=>{
   if(CAD.hid.some(h=>String(h.pat)===novoPat))return toast(`O patrimônio ${novoPat} já está em uso.`);
   const nInsp=ITENS.filter(i=>i.tipo==="hid"&&+i.eqSeq===+seqAtual).length;
   if(nInsp>0)return toast("Este hidrante já tem histórico — não dá para renomear.");
+  if(await temInspecaoNoBanco("hid","eqSeq",+seqAtual))
+    return toast("Este hidrante tem inspeção registrada em algum mês — não dá para renomear.");
   const cadxAntes=JSON.parse(JSON.stringify(CADX));
   try{
     const viaAdd=CADX.hidAdd.find(h=>+h.seq===+seqAtual);
@@ -4245,7 +4259,7 @@ window.corrigirLote=()=>{
   if(!ISADMIN)return;
   $("dlgBody").innerHTML=`<h3>🛠️ Corrigir cadastro em lote</h3>
     ${seletorLoteTipo}
-    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe o cadastro atual.<br>2) Corrija o que precisar na planilha — <b>não altere a 1ª coluna</b> (Seq/Patrimônio, é a chave). Célula em branco = mantém o valor atual.<br>3) Para excluir um item que não existe mais fisicamente (ex.: reserva da lista antiga que já foi descartada), escreva <b>S</b> na última coluna "Remover?" daquela linha.<br>4) Envie o arquivo corrigido e toque em Aplicar.</p>
+    <p style="font-size:13px;color:var(--cinza);line-height:1.7;margin-top:8px">1) Baixe o cadastro atual.<br>2) Corrija o que precisar na planilha — <b>não altere a 1ª coluna</b> (Seq/Patrimônio, é a chave). Célula em branco = mantém o valor atual.<br>3) Pra corrigir o ID/patrimônio de um item, preencha a coluna <b>"Novo Seq"/"Novo Patrimônio"</b> — só funciona pra quem <b>nunca teve inspeção registrada</b> e pra um ID/patrimônio que já não esteja em uso; quem tiver histórico é ignorado, sem risco.<br>4) Para excluir um item que não existe mais fisicamente (ex.: reserva da lista antiga que já foi descartada), escreva <b>S</b> na coluna "Remover?" daquela linha.<br>5) Envie o arquivo corrigido e toque em Aplicar.</p>
     <button class="btn sec" onclick="exportCadLote()">⬇️ Baixar cadastro atual (.xlsx)</button>
     <label>Arquivo corrigido (.xlsx)</label><input id="lFile" type="file" accept=".xlsx">
     <button class="btn" onclick="processaLote('edit')">🛠️ Aplicar correções</button>
@@ -4264,11 +4278,11 @@ window.exportCadLote=async()=>{
   const tq=$("lTipoEq").value;
   const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet("Cadastro");
   if(tq==="ext"){
-    ws.addRow(["Seq (não alterar)",...LOTE_COLS_EXT,"Remover? (S/N)"]);
-    CAD.ext.forEach(e=>ws.addRow([e.seq,e.num??"",e.pat??"",e.agp??"",e.cgp??"",e.loc??"",e.fab??"",e.fabricante??"",fmtBR(e.man2),fmtBR(e.man3),""]));
+    ws.addRow(["Seq (não alterar)",...LOTE_COLS_EXT,"Novo Seq (só preencha se quiser mudar)","Remover? (S/N)"]);
+    CAD.ext.forEach(e=>ws.addRow([e.seq,e.num??"",e.pat??"",e.agp??"",e.cgp??"",e.loc??"",e.fab??"",e.fabricante??"",fmtBR(e.man2),fmtBR(e.man3),"",""]));
   }else{
-    ws.addRow(["Patrimônio (não alterar)","Tipo","Capacidade","Localização","Fabricação (ano)","Fabricante","Próx. Manutenção","Próx. T. Hidrostático","Remover? (S/N)"]);
-    CAD.hid.forEach(h=>ws.addRow([h.pat,h.tipo??"",h.cap??"",h.loc??"",h.fab??"",h.fabricante??"",fmtBR(h.man),fmtBR(h.th),""]));
+    ws.addRow(["Patrimônio (não alterar)","Tipo","Capacidade","Localização","Fabricação (ano)","Fabricante","Próx. Manutenção","Próx. T. Hidrostático","Novo Patrimônio (só preencha se quiser mudar)","Remover? (S/N)"]);
+    CAD.hid.forEach(h=>ws.addRow([h.pat,h.tipo??"",h.cap??"",h.loc??"",h.fab??"",h.fabricante??"",fmtBR(h.man),fmtBR(h.th),"",""]));
   }
   ws.getRow(1).font={bold:true};ws.columns.forEach(c=>c.width=20);
   await baixaXLSX(wb,`cadastro_${tq==="ext"?"extintores":"hidrantes"}_para_correcao.xlsx`);
@@ -4324,7 +4338,7 @@ window.processaLote=async modo=>{
           const seq=cellStr(row.getCell(1).value);
           const e=CAD.ext.find(x=>String(x.seq)===String(seq));
           if(!e){pulos.push(`linha ${rn}: Seq "${seq||"?"}" não encontrado`);return;}
-          if(querRemover(row.getCell(LOTE_COLS_EXT.length+2).value)){
+          if(querRemover(row.getCell(LOTE_COLS_EXT.length+3).value)){
             if(!CADX.extDel.map(String).includes(String(seq)))CADX.extDel.push(String(seq));
             rem++;return;
           }
@@ -4369,15 +4383,77 @@ window.processaLote=async modo=>{
           CADX.hidEdit[pat]={...(CADX.hidEdit[pat]||{}),...nv};edit++;
         }
       }});
+    /* ---- Troca de ID/Patrimônio em lote — mesma trava da correção individual:
+       só quem nunca teve inspeção pode mudar, e só pra um ID/patrimônio livre.
+       Roda numa passada à parte, depois dos outros campos, pra não se misturar
+       com a edição normal da mesma linha. */
+    let renom=0;
+    if(modo==="edit"){
+      const colNovo=tq==="ext"?LOTE_COLS_EXT.length+2:LOTE_COLS_HID.length+1;
+      const renomeios=[];
+      for(let rn=2;rn<=ws.rowCount;rn++){
+        const row=ws.getRow(rn);
+        const atualCell=cellStr(row.getCell(1).value);
+        const novoCell=cellStr(row.getCell(colNovo).value);
+        if(!atualCell||!novoCell||novoCell===atualCell)continue;
+        renomeios.push({rn,atual:atualCell,novo:novoCell});
+      }
+      for(const r of renomeios){
+        if(tq==="ext"){
+          const n=parseInt(r.novo,10);
+          if(!n||n<1){pulos.push(`linha ${r.rn}: novo Seq inválido`);continue;}
+          const atualN=+r.atual;
+          if(seqsComHistoricoExt().has(atualN)||await temInspecaoNoBanco("ext","eqSeq",atualN)){
+            pulos.push(`linha ${r.rn}: Seq ${r.atual} já tem histórico — não renomeado`);continue;}
+          if(seqsEmUsoExt().has(n)||seqsComHistoricoExt().has(n)){
+            pulos.push(`linha ${r.rn}: Seq ${n} já está em uso ou já teve histórico`);continue;}
+          const base={...CAD.ext.find(x=>String(x.seq)===r.atual)};
+          if(base.seq==null){pulos.push(`linha ${r.rn}: Seq ${r.atual} não encontrado`);continue;}
+          base.seq=n;
+          if(String(base.pat??"")===r.atual)base.pat=n;
+          const eraAdd=CADX.extAdd.some(a=>String(a.seq)===r.atual);
+          CADX.extAdd=CADX.extAdd.filter(a=>String(a.seq)!==r.atual);
+          if(!eraAdd&&!CADX.extDel.map(String).includes(r.atual))CADX.extDel.push(r.atual);
+          if(CADX.extEdit[r.atual])delete CADX.extEdit[r.atual];
+          CADX.extDel=CADX.extDel.filter(x=>String(x)!==String(n));
+          CADX.extAdd.push(base);
+          if(OVR[r.atual]||OVR[String(n)]){
+            OVR[String(n)]={num:base.num??null,tipo:base.tipo??null,carga:base.carga??null,fab:base.fab??null,
+              fabricante:base.fabricante??null,man2:base.man2??null,man3:base.man3??null,
+              manut:base.manut??null,manutDesde:base.manutDesde??null,manutDe:base.manutDe??null,
+              manutLoc:base.manutLoc??null,engex:base.engex??null,engexDesde:base.engexDesde??null};
+            patchOvr[String(n)]=OVR[String(n)];}
+          patchOvr[r.atual]=deleteField();
+          delete OVR[r.atual];
+          renom++;
+        }else{
+          const novoPat=r.novo;
+          if(CAD.hid.some(h=>String(h.pat)===novoPat)){pulos.push(`linha ${r.rn}: patrimônio ${novoPat} já está em uso`);continue;}
+          const hAtual=CAD.hid.find(x=>String(x.pat)===r.atual);
+          if(!hAtual){pulos.push(`linha ${r.rn}: patrimônio ${r.atual} não encontrado`);continue;}
+          const seqAtual=hAtual.seq;
+          const temLocal=ITENS.some(i=>i.tipo==="hid"&&+i.eqSeq===+seqAtual);
+          if(temLocal||await temInspecaoNoBanco("hid","eqSeq",+seqAtual)){
+            pulos.push(`linha ${r.rn}: ${r.atual} já tem histórico — não renomeado`);continue;}
+          const viaAdd=CADX.hidAdd.find(h=>+h.seq===+seqAtual);
+          if(viaAdd){viaAdd.pat=novoPat;}
+          else{
+            const base=CAD0.hid.find(h=>+h.seq===+seqAtual);
+            const chave=String(base?.pat??r.atual);
+            CADX.hidEdit[chave]={...(CADX.hidEdit[chave]||{}),pat:novoPat};}
+          renom++;
+        }
+      }
+    }
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
-    if(modo==="edit"&&!edit&&!rem)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
+    if(modo==="edit"&&!edit&&!rem&&!renom)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
     const nOvr=Object.keys(patchOvr).length;
     const okOvr=nOvr?await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true})):true;
     const okImp=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
     aplicaOvr();
-    audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,ignoradas:pulos.slice(0,10)},okImp);
+    audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,renomeados:renom,ignoradas:pulos.slice(0,10)},okImp);
     $("dlg").close();
-    avisaGravacao(okImp&&okOvr,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
+    avisaGravacao(okImp&&okOvr,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}${renom?` · ${renom} ID/patrimônio corrigido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
   }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Corrigir inspeções em lote ----------
