@@ -3,6 +3,7 @@
     "public": ".",
     "ignore": [
       "firebase.json",
+      "index_backup.html",
       "**/.*",
       "**/node_modules/**",
       "**/.github/**"
