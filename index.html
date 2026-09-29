@@ -4279,19 +4279,23 @@ window.revisarReservas=()=>{
   if(!ISADMIN)return;
   const lista=CAD.ext.filter(isReserva).sort((a,b)=>String(a.num??"").localeCompare(String(b.num??""),"pt",{numeric:true}));
   if(!lista.length)return toast("Não há nenhum cilindro no pool de reserva.");
+  const temPadraoVelho=e=>e.agp!=null||e.cgp!=null;
   const linha=e=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--borda);font-size:13px">
       <input type="checkbox" class="rvChk" value="${esc(String(e.seq))}" style="width:auto">
-      <span>Nº ${esc(String(e.num??"—"))} — ${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}${e.fab?` · fab. ${esc(String(e.fab))}`:""}${ehCondenado(e)?' <b style="color:var(--cd)">⛔ já condenado</b>':""}${emManutencao(e)?' <b style="color:#7c3aed">🔧 na Engex para recarga — some daqui quando voltar</b>':""}</span>
+      <span>Nº ${esc(String(e.num??"—"))} — ${esc(e.tipo||e.agp||"")} ${esc(String(e.carga??e.cgp??""))}${e.fab?` · fab. ${esc(String(e.fab))}`:""}${ehCondenado(e)?' <b style="color:var(--cd)">⛔ já condenado</b>':""}${emManutencao(e)?' <b style="color:#7c3aed">🔧 na Engex para recarga — some daqui quando voltar</b>':""}${temPadraoVelho(e)?' <b style="color:var(--warn)">⚠️ com "padrão" antigo</b>':""}</span>
     </label>`;
+  const qtdVelho=lista.filter(temPadraoVelho).length;
   $("dlgBody").innerHTML=`<h3>🧹 Revisar pool de reserva (${lista.length})</h3>
     <p style="font-size:12.5px;color:var(--cinza);margin-bottom:6px">Marque os cilindros que <b>não existem mais fisicamente</b> e toque em "Remover selecionados". As inspeções antigas deles continuam no histórico — isto só tira o item das listas e contagens atuais.</p>
+    ${qtdVelho?`<p style="font-size:12.5px;color:#92400e;margin-bottom:6px">⚠️ ${qtdVelho} reserva(s) ainda carregam um "padrão de agente/carga" antigo, de antes da correção — marque-as (ou use "Marcar todos") e toque em "Limpar padrão dos selecionados".</p>`:""}
     <label>Filtrar por nº / agente</label><input id="rvBusca" oninput="rvFiltra()" placeholder="Digite para filtrar a lista…">
     <div style="display:flex;gap:8px;margin:6px 0">
       <button type="button" class="btn sec" style="flex:1" onclick="rvMarcaTodos(true)">Marcar todos (visíveis)</button>
       <button type="button" class="btn sec" style="flex:1" onclick="rvMarcaTodos(false)">Desmarcar todos</button>
     </div>
     <div id="rvLista" style="max-height:45vh;overflow:auto;margin:6px 0">${lista.map(linha).join("")}</div>
-    <button class="btn" style="border-color:var(--cd);color:var(--cd)" onclick="removerReservasSelecionadas()">🗑️ Remover selecionados</button>
+    <button class="btn" onclick="limparPadraoReservasSelecionadas()">🧽 Limpar "padrão" dos selecionados</button>
+    <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="removerReservasSelecionadas()">🗑️ Remover selecionados</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
 window.rvFiltra=()=>{
@@ -4308,6 +4312,28 @@ window.removerReservasSelecionadas=()=>{
   if(!confirm(`Remover ${sel.length} cilindro(s) do pool de reserva? As inspeções antigas deles continuam no histórico.`))return;
   sel.forEach(seq=>{if(!CADX.extDel.map(String).includes(String(seq)))CADX.extDel.push(String(seq));});
   salvaCADX("remover_reservas_em_lote",{qtd:sel.length});};
+/* Limpa de vez o "padrão de agente/carga" congelado que vagas de reserva
+   antigas carregam desde a criação (ver salvaNovoExt/salvaEdEquip — reserva não
+   deveria ter isso, só o cilindro atual em tipo/carga). Corrige de uma vez só
+   as reservas cadastradas antes dessa correção, sem precisar abrir uma por uma
+   em "Editar equipamento". Rodar em cima de uma reserva que já está certa não
+   faz mal nenhum — só confirma que continua null. */
+window.limparPadraoReservasSelecionadas=async()=>{
+  if(!podeGravar())return;
+  const sel=[...document.querySelectorAll(".rvChk:checked")].map(c=>c.value);
+  if(!sel.length)return toast("Marque ao menos um cilindro para limpar.");
+  if(!confirm(`Limpar o "padrão" de agente/carga de ${sel.length} cilindro(s) de reserva? Cada um passa a mostrar só o cilindro atual (o que já é o que vale hoje) — nada físico muda.`))return;
+  const patchOvr={};
+  sel.forEach(seq=>{
+    CADX.extEdit[seq]={...(CADX.extEdit[seq]||{}),agp:null,cgp:null};
+    if(OVR[seq]){OVR[seq]={...OVR[seq],agp:null,cgp:null};patchOvr[seq]=OVR[seq];}});
+  try{
+    const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    let okOvr=true;
+    if(Object.keys(patchOvr).length)okOvr=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true}));
+    aplicaOvr();audit("limpar_padrao_reservas_em_lote",{qtd:sel.length},okCadx&&okOvr);$("dlg").close();
+    avisaGravacao(okCadx&&okOvr,`✅ Padrão limpo em ${sel.length} reserva(s).`);
+  }catch(e){toast("Erro: "+e.message);}};
 
 /* ---------- Lote: importação e correção de extintores por planilha (admin) ---------- */
 const LOTE_COLS_EXT=["Nº","Patrimônio","Agente (CO2/AP/BC/EM/ABC)","Carga","Localização","Fabricação (ano)","Fabricante","Próx. Man. 2º Nível","Próx. Man. 3º Nível"];
