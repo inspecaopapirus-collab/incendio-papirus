@@ -1170,7 +1170,11 @@ window.toggleEngex=async()=>{
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()})):true;
     const ok=okCadxAdd&&okEngex&&okMov;
     audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:numOriginal,...(novoSeq?{foiParaManutencaoComo:novoSeq}:{})},ok);
-    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    /* ok=false aqui e "passou do prazo", nao "recusado": a gravacao continua na fila do
+       aparelho e sobe sozinha (a recusa de verdade cai no catch abaixo, ou no aviso do
+       comTimeout). Desfazer a memoria agora mostrava o estado antigo na tela e, pior, a
+       proxima gravacao do cadastro mandaria o estado antigo por cima da que esta na fila. */
+    aplicaOvr();
     avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva Engex — Nº ${numOriginal} foi para manutenção/recarga.`:"🏢 Marcado como reserva Engex."):"✅ Reserva Engex removida.");
   }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro ao salvar: "+e.message);}
 };
@@ -1223,7 +1227,11 @@ window.confirmaMigraEngexAntigos=async()=>{
       if(!ok1)okMov=false;}
     const ok=okCadxAdd&&okEngex&&okMov;
     audit("migrar_engex_retroativo",{qtd:registrados.length,seqs:registrados.map(r=>r.seqOrigem)},ok);
-    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    /* ok=false aqui e "passou do prazo", nao "recusado": a gravacao continua na fila do
+       aparelho e sobe sozinha (a recusa de verdade cai no catch abaixo, ou no aviso do
+       comTimeout). Desfazer a memoria agora mostrava o estado antigo na tela e, pior, a
+       proxima gravacao do cadastro mandaria o estado antigo por cima da que esta na fila. */
+    aplicaOvr();
     $("dlg").close();
     avisaGravacao(ok,`✅ ${registrados.length} equipamento(s) migrado(s) para manutenção/recarga.`);
   }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro na migração: "+e.message);}};
@@ -1406,6 +1414,11 @@ if(configOK) onAuthStateChanged(auth,u=>{
           <span style="color:var(--cinza)">Este e-mail não tem mais acesso ao sistema.
           Fale com o administrador se isso for engano.</span>`;
         signOut(auth);return;}
+      if(SEM_CADASTRO){
+        $("lMsg").innerHTML=`<b style="color:var(--nc)">🔒 Acesso ainda não liberado</b><br>
+          <span style="color:var(--cinza)">Este e-mail não tem cadastro no sistema.
+          Peça ao administrador para criar o seu acesso.</span>`;
+        signOut(auth);return;}
       escutar();});
     if(ISADMIN&&Date.now()-(+localStorage.getItem("lastBackup")||0)>30*864e5)
       setTimeout(()=>toast("💾 Lembrete: faça o backup mensal no Painel."),3500);
@@ -1435,11 +1448,19 @@ async function prepNotif(qtd){
 
 function pintaUInfo(){
   $("uInfo").innerHTML=`Inspetor: ${esc(NOME||auth.currentUser?.email||"")} <span style="text-decoration:underline;cursor:pointer;opacity:.8" onclick="mudarNome()">alterar</span> · <span style="text-decoration:underline;cursor:pointer;opacity:.8" onclick="assinatura()">✍️ assinatura${ASSIN?" ✓":""}</span>`;}
+let SEM_CADASTRO=false;
 async function carregarNome(u){
+  SEM_CADASTRO=false;
   try{const snap=await getDoc(doc(db,"usuarios",u.uid));
     NOME=snap.exists()?(snap.data().nome||""):"";ASSIN=snap.exists()?(snap.data().assin||""):"";
-    PERFIL=snap.exists()?(snap.data().perfil||"inspetor"):"inspetor";}
+    PERFIL=snap.exists()?(snap.data().perfil||"inspetor"):"inspetor";
+    /* Conta sem cadastro em "usuarios" (so o admin cria o cadastro). As regras do
+       Firestore recusam essa conta; sem este aviso o app pedia o nome e enchia a tela
+       de "Falha ao ler". Resposta do cache nao conta: sem sinal, nao da para saber. */
+    SEM_CADASTRO=!snap.exists()&&!snap.metadata.fromCache
+      &&!ADMIN_EMAILS.includes(String(u.email||"").toLowerCase());}
   catch(e){NOME="";ASSIN="";PERFIL="inspetor";}
+  if(SEM_CADASTRO)return;
   recalcAdmin();
   /* carimba a entrada — vira a coluna "último acesso" na tela de usuários */
   if(!BLOQUEADO){try{setDoc(doc(db,"usuarios",u.uid),
@@ -2888,17 +2909,21 @@ window.salvaEdicaoInspecao=async id=>{
     }
     if((mexeuFoto||i.foto1||i.foto2)&&fAtu.erro){
       return toast("\u26a0\uFE0F N\u00e3o consegui carregar as fotos atuais. Salvar agora apagaria as que est\u00e3o no sistema. Tente de novo com sinal melhor.");}
+    let gravouFotoEd=true;
     if(mexeuFoto||i.foto1||i.foto2){
-      const gravouFoto=await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
+      gravouFotoEd=await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
       /* so limpa a foto do documento depois de confirmar que a copia foi gravada.
          Antes limpava sempre: se a copia falhasse, a foto sumia dos dois lugares. */
-      if(!gravouFoto)return toast("\u26a0\uFE0F A foto n\u00e3o p\u00f4de ser gravada agora. Nada foi alterado \u2014 tente com sinal melhor.");
+      /* gravouFoto=false e "passou do prazo": a foto ja esta na fila e sobe antes da
+         correcao abaixo (o aparelho envia na ordem). Antes o app parava aqui dizendo
+         "nada foi alterado", mas a foto subia depois sozinha e o resto da correcao
+         (checklist, obs) se perdia. Recusa de verdade cai no catch. */
       patch.foto1="";patch.foto2="";patch.temFoto=!!(fAtu.foto1||fAtu.foto2);
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
     const okEd=await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
     audit("editar_inspecao",{id,tipo:i.tipo,...(reatrib?{reatribuido:reatrib}:{})},okEd);
-    $("dlg").close();avisaGravacao(okEd,"✅ Inspeção corrigida!");
+    $("dlg").close();avisaGravacao(okEd&&gravouFotoEd,"✅ Inspeção corrigida!");
   }catch(e){toast("Erro ao salvar: "+e.message);}};
 window.excluir=async id=>{
   if(!ISADMIN)return toast("Apenas o administrador pode excluir registros.");
@@ -4216,13 +4241,14 @@ window.confirmaAlteraPatHid=async()=>{
       const chave=String(base?.pat??patAtual);
       CADX.hidEdit[chave]={...(CADX.hidEdit[chave]||{}),pat:novoPat};}
     const ok=await comTimeout(gravaCADX());
-    if(!ok){CADX=cadxAntes;return toast("⚠️ Não gravou agora — nada foi alterado. Tente de novo.");}
+    /* ok=false e "passou do prazo": a troca ja esta na fila e vai subir. Antes o app
+       dizia "nada foi alterado" e desfazia a tela, mas a gravacao subia depois. */
     aplicaOvr();
     const achou=CAD.hid.find(h=>+h.seq===+seqAtual);
     if(achou){EQ=achou;$("fBusca").value=labelEq(EQ);mostraPadrao();}
-    audit("alterar_patrimonio_hid",{de:patAtual,para:novoPat});
+    audit("alterar_patrimonio_hid",{de:patAtual,para:novoPat},ok);
     $("dlg").close();
-    toast(`✅ O patrimônio ${patAtual} agora é o ${novoPat}.`);
+    avisaGravacao(ok,`✅ O patrimônio ${patAtual} agora é o ${novoPat}.`);
   }catch(e){CADX=cadxAntes;aplicaOvr();toast("Erro ao trocar o patrimônio, nada foi alterado: "+e.message);}};
 window.editarEquip=()=>{
   if(!ISADMIN)return;

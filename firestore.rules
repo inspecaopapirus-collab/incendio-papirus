@@ -1,0 +1,116 @@
+rules_version = '2';
+// Regras do Firestore — Combate a Incêndio Papirus.
+// Este arquivo NÃO é publicado sozinho pelo GitHub Actions (o workflow só publica
+// o site). Para valer, copie o conteúdo em Console do Firebase → Firestore → Regras
+// → Publicar. Fica no repositório para ter histórico e revisão.
+//
+// Mudança principal em relação à versão anterior: só entra quem tem cadastro em
+// "usuarios" criado por um administrador (ou é admin fixo). Antes, qualquer pessoa
+// podia criar uma conta com a chave pública do app e, sem cadastro, já era tratada
+// como inspetor — e ainda podia criar o próprio cadastro com perfil "admin".
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() { return request.auth != null; }
+    function email() { return request.auth.token.get('email', '').lower(); }
+    function ehAdminFixo() {
+      return email() in ['ederbatistelajr@gmail.com', 'emailparaia650@gmail.com'];
+    }
+    // cadastro criado por um administrador em "usuarios"
+    function cadastrado() {
+      return exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+    // Perfil do usuário: inspetor | admin | teste_inspetor | teste_admin | bloqueado
+    function perfil() {
+      return cadastrado()
+        ? get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get('perfil', 'inspetor')
+        : 'sem_cadastro';
+    }
+    // Pode usar o sistema: admin fixo, ou cadastrado e sem acesso encerrado.
+    // O admin fixo nunca é bloqueado — é a porta de entrada de emergência.
+    function ativo() {
+      return autenticado() && (ehAdminFixo() || (cadastrado() && perfil() != 'bloqueado'));
+    }
+    // Modo teste: enxerga tudo, não grava nada (exceto o próprio nome/assinatura)
+    function ehTeste() {
+      return !ehAdminFixo() && perfil().matches('teste.*');
+    }
+    function podeGravar() { return ativo() && !ehTeste(); }
+    function ehAdmin() {
+      return ativo() && (
+           ehAdminFixo()
+        || perfil() == 'admin'
+        || (exists(/databases/$(database)/documents/config/admins)
+            && email() in get(/databases/$(database)/documents/config/admins).data.get('emails', [])));
+    }
+
+    // Ambiente de teste: cópias isoladas com prefixo teste_ (01/09/2026)
+    match /{colecao}/{documento=**} {
+      allow read, write: if ativo() && colecao.matches('teste_.*');
+    }
+    // Inspeções: qualquer usuário ativo registra; só admin corrige/exclui
+    match /inspecoes/{id} {
+      allow read: if ativo();
+      allow create: if podeGravar();
+      allow update, delete: if ehAdmin() && podeGravar();
+    }
+    // Fotos das inspeções (fora do documento da inspeção)
+    match /fotos/{id} {
+      allow read: if ativo();
+      allow create: if podeGravar();
+      allow update: if ehAdmin() && podeGravar();
+      allow delete: if false;
+    }
+    // Tratativa de não conformidade
+    match /tratativas/{id} {
+      allow read: if ativo();
+      allow create, update: if podeGravar();
+      allow delete: if ehAdmin() && podeGravar();
+    }
+    // Substituições por reserva: inspetor e admin registram; só admin exclui
+    match /movimentacoes/{id} {
+      allow read: if ativo();
+      allow create: if podeGravar();
+      allow update, delete: if ehAdmin() && podeGravar();
+    }
+    // Condenações de cilindro: todos consultam; só admin registra ou desfaz
+    match /condenacoes/{id} {
+      allow read: if ativo();
+      allow create, update: if ehAdmin() && podeGravar();
+      allow delete: if false;
+    }
+    // Usuários. Cada um lê o PRÓPRIO cadastro mesmo com o acesso encerrado (é assim
+    // que o app mostra "acesso encerrado"). Só admin cria cadastro e muda "perfil".
+    match /usuarios/{uid} {
+      allow read: if autenticado() && (request.auth.uid == uid || ativo());
+      allow create: if ehAdmin() && podeGravar();
+      allow update: if (ehAdmin() && podeGravar())
+        || (ativo()
+            && request.auth.uid == uid
+            && request.resource.data.get('perfil', 'inspetor') == resource.data.get('perfil', 'inspetor'));
+      allow delete: if false;
+    }
+    // Auditoria: todos criam eventos; só admin lê; ninguém altera/apaga
+    match /auditoria/{id} {
+      allow create: if ativo();
+      allow read: if ehAdmin();
+      allow update, delete: if false;
+    }
+    // Assinaturas diárias dos inspetores
+    match /assinaturas/{id} {
+      allow read, create: if ativo();
+      allow update, delete: if ehAdmin() && podeGravar();
+    }
+    // Overrides das trocas por recarga. Não-admin mexe em até 2 posições por gravação.
+    match /config/cadastroExt {
+      allow read: if ativo();
+      allow write: if (ehAdmin() && podeGravar())
+        || (podeGravar()
+            && request.resource.data.overrides.diff(resource.data.overrides).affectedKeys().size() <= 2);
+    }
+    // Demais configurações (cadastro custom, lista de admins): só admin altera
+    match /config/{docId} {
+      allow read: if ativo();
+      allow write: if ehAdmin() && podeGravar();
+    }
+  }
+}
