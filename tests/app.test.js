@@ -158,6 +158,39 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     confere((await p.textContent("#toast")).includes("Ambiente de teste"), "modo teste bloqueia criar usuario");
     await ctx.close(); }
 
+  /* 5. inspecao completa pela tela nova: chips, botoes C/NC/NA, fotos e salvar */
+  HTML = preparaHtml(false); await zera();
+  await escreve(d => F.setDoc(F.doc(d, "config", "cadastroExt"), { overrides: { "1": { num: "90301", tipo: "CO2", carga: "6KG" } } }));
+  { const { ctx, p } = await abre();
+    await entra(p, "admin.teste@exemplo.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(3000);
+    await p.evaluate(() => window.escolheEquip("ext", "1"));
+    await p.click('#fTipoLocal + .chips button[data-v="CO2"]');
+    await p.click('#cgLocal button[data-cg="6 Kg"]');
+    const ind = await p.evaluate(() => ({ v: document.getElementById("ck2").value, off: document.querySelector('#ck2 + .opcoes button[data-v="C"]').disabled }));
+    confere(ind.v === "NA" && ind.off, "CO2 trava 'Indicador de Pressao' em NA tambem nos botoes", ind);
+    await p.click('#ck3 + .opcoes button[data-v="NC"]');
+    const nc = await p.evaluate(() => ({ sel: document.getElementById("ck3").value,
+      res: document.getElementById("confBox").classList.contains("nc"), f2: document.getElementById("tileF2").classList.contains("obrig") }));
+    confere(nc.sel === "NC" && nc.res && nc.f2, "tocar NC marca o item, o resultado fica 'nao conforme' e a Foto 02 fica obrigatoria", nc);
+    const img = path.join(RAIZ, "icon-192.png");
+    await p.setInputFiles("#fFoto1", img); await p.setInputFiles("#fFoto2", img);
+    confere(await p.evaluate(() => document.getElementById("tileF1").classList.contains("tem")), "a foto escolhida aparece em miniatura no quadro");
+    await p.fill("#fObs", "Lacre rompido");
+    await p.click("#btnSalvar"); await p.waitForTimeout(5000);
+    let insp = null;
+    await env.withSecurityRulesDisabled(async c => { const q = await F.getDocs(F.collection(c.firestore(), "inspecoes")); insp = q.docs.map(x => x.data())[0] || null; });
+    confere(insp && insp.checklist.Lacre === "NC" && insp.conformidade === "NC" && insp.tipoLocal === "CO2" && insp.cargaLocal === "6 Kg" && insp.checklist["Indicador de Pressão"] === "NA",
+      "inspecao gravada com o que foi tocado na tela", insp && { chk: insp.checklist, conf: insp.conformidade, ag: insp.tipoLocal, cg: insp.cargaLocal });
+    const limpo = await p.evaluate(() => ({ b: document.querySelector('#ck3 + .opcoes button[data-v="C"]').getAttribute("aria-checked"),
+      f: document.getElementById("tileF1").classList.contains("tem"), ag: document.querySelectorAll('#fTipoLocal + .chips button[aria-checked="true"]').length }));
+    confere(limpo.b === "true" && !limpo.f && limpo.ag === 0, "depois de salvar, botoes, fotos e agente voltam ao inicio", limpo);
+    await p.click("#segH");
+    await p.click('#hAbrigo + .opcoes button[data-v="Não"]');
+    const hid = await p.evaluate(() => ({ v: document.getElementById("hAbrigo").value, nc: document.getElementById("confBox").classList.contains("nc") }));
+    confere(hid.v === "Não" && hid.nc, "hidrante: abrigo 'Nao' pelos botoes deixa a inspecao nao conforme", hid);
+    confere(p.erros.length === 0, "tela nova sem erro de JavaScript", p.erros);
+    await ctx.close(); }
+
   await browser.close(); await env.cleanup(); servidor.close();
   console.log(`\nApp: ${falhas ? falhas + " falha(s)" : "tudo como esperado"}`);
   process.exit(falhas ? 1 : 0);
