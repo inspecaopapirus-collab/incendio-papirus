@@ -896,7 +896,12 @@ const emManutencao=e=>!!(e&&e.manut);
    cada item criado guarda a data no campo "criado" (AAAA-MM-DD) e so entra na
    rota do mes dessa data em diante. Item SEM a data e do cadastro original:
    conta em todos os meses, como sempre contou (nao mexe em nada ja fechado). */
-const dataHoje=()=>new Date().toISOString().slice(0,10);
+/* Data no fuso do APARELHO (Brasilia). toISOString() devolve a data em UTC: das 21h
+   a meia-noite ela ja e o dia seguinte, e no ultimo dia do mes a inspecao da noite
+   caia no mes seguinte - o equipamento aparecia pendente no mes que ela cobria. */
+const dataLocal=(d=new Date())=>{const x=new Date(d);
+  return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");};
+const dataHoje=()=>dataLocal();
 const mesDeCriacao=e=>String((e&&e.criado)||"").slice(0,7);
 const jaExistiaEm=(e,pm)=>{const c=mesDeCriacao(e);return !c||!pm||c<=pm;};
 
@@ -1364,11 +1369,11 @@ window.subtab=btn=>{
    montar a lista, do mesmo jeito que os relatórios já garantem o mês escolhido. */
 async function garanteMesesRecentes(n=12){
   const d=new Date();
-  for(let i=0;i<n;i++)await garanteMes(new Date(d.getFullYear(),d.getMonth()-i,1).toISOString().slice(0,7));}
+  for(let i=0;i<n;i++)await garanteMes(dataLocal(new Date(d.getFullYear(),d.getMonth()-i,1)).slice(0,7));}
 function fillMeses(){
   const out=[];const d=new Date();
   for(let i=0;i<18;i++){const m=new Date(d.getFullYear(),d.getMonth()-i,1);
-    out.push(m.toISOString().slice(0,7));}
+    out.push(dataLocal(m).slice(0,7));}
   $("pMes").innerHTML=out.map(m=>`<option value="${m}">${m.split("-").reverse().join("/")}</option>`).join("");
   /* mesmo seletor em Registros, com a opção "todos" na frente (ajuste D) */
   const fl=$("flMes");
@@ -1620,7 +1625,7 @@ window.salvar=async()=>{
   if($("fFoto2").files[0]&&!validaImagem($("fFoto2").files[0]))return;
   if(ehNC&&!$("fObs").value.trim())return toast("Descreva a não conformidade no campo de observação.");
   /* Duplicidade no mês: avisa antes de gravar um segundo registro do mesmo equipamento */
-  const mesAtual=new Date().toISOString().slice(0,7);
+  const mesAtual=dataLocal().slice(0,7);
   const jaTem=ITENS.find(i=>i.mes===mesAtual&&i.tipo===TIPO&&String(i.eqSeq??i.eqPat)===String(TIPO==="ext"?EQ.seq:EQ.pat));
   if(jaTem&&!confirm(`Este equipamento já foi inspecionado em ${fmtBR(jaTem.data)} por ${jaTem.inspetor||"—"}.\n\nGravar mesmo assim uma segunda inspeção neste mês?`))return;
   let diverg=null,divergAceita="";
@@ -1637,7 +1642,7 @@ window.salvar=async()=>{
     const carimbo=linhasCarimbo(EQ,TIPO,new Date());
     if($("fFoto1").files[0])foto1=await comprimir($("fFoto1").files[0],1000,.6,carimbo);
     if($("fFoto2").files[0])foto2=await comprimir($("fFoto2").files[0],1000,.6,carimbo);
-    const hoje=new Date().toISOString().slice(0,10);
+    const hoje=dataLocal();
     const base={tipo:TIPO,data:hoje,mes:hoje.slice(0,7),
       obs:$("fObs").value,conformidade:confAuto(),temFoto:!!(foto1||foto2),
       divergencia:!!diverg,divergAceita,diverg:diverg||null,
@@ -1872,7 +1877,7 @@ window.confirmaCorrecaoLocal=async()=>{
   try{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
     const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
-    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataLocal(),
       /* o registro de movimentacao tambem afirmava que a troca aconteceu mesmo quando
          o cadastro nao confirmou — agora ele carrega o resultado junto */
       cadastroConfirmado:okCad,
@@ -1942,7 +1947,7 @@ window.confirmaTroca=async()=>{
      fica marcado como em manutenção até alguém registrar o retorno.
      Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
   OVR[String(r.seq)]=eraReserva
-    ?{...doEQ,manut:true,manutDesde:new Date().toISOString().slice(0,10),manutDe:EQ.seq,manutLoc:EQ.loc||""}
+    ?{...doEQ,manut:true,manutDesde:dataLocal(),manutDe:EQ.seq,manutLoc:EQ.loc||""}
     /* troca entre dois pontos fixos: ninguem foi para recarga. Sem estes nulos o merge
        manteria uma marcacao de manutencao antiga que ficou no servidor. */
     :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null};
@@ -1951,7 +1956,7 @@ window.confirmaTroca=async()=>{
   const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
   try{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
-    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataLocal(),
       cadastroConfirmado:okCad,
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
@@ -1968,7 +1973,7 @@ window.confirmaTroca=async()=>{
    normalmente só mudam quando a mangueira é trocada por causa do teste. */
 window.testeHidrostatico=()=>{
   if(!EQ||TIPO!=="hid"||!ISADMIN)return;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=dataLocal();
   $("dlgBody").innerHTML=`<h3>🚿 Registrar teste hidrostático</h3>
     <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Hidrante <b>${esc(String(EQ.pat))}</b> — ${esc(String(EQ.loc||""))}<br>
       Mangueira atual: <b>${esc(String(EQ.fabricante||"—"))}</b>, fabricação <b>${esc(String(EQ.fab??"—"))}</b></p>
@@ -1990,7 +1995,7 @@ window.confirmaTesteHidrostatico=async()=>{
   const fabricante=$("thFabricante").value.trim();
   const fab=+$("thFab").value||null;
   const th=$("thProx").value||null;
-  const dt=$("thData").value||new Date().toISOString().slice(0,10);
+  const dt=$("thData").value||dataLocal();
   if(!fabricante||!fab||!th)return toast("Preencha marca da mangueira, ano de fabricação e a próxima data.");
   const pat=String(EQ.pat);
   CADX.hidEdit[pat]={tipo:EQ.tipo||null,cap:EQ.cap||null,loc:EQ.loc||null,
@@ -2008,7 +2013,7 @@ const somaAnos=(iso,n)=>{
   return d.toISOString().slice(0,10);};
 window.voltouRecarga=()=>{
   if(!EQ||TIPO!=="ext"||!emManutencao(EQ))return;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=dataLocal();
   $("dlgBody").innerHTML=`<h3>🔧 Registrar retorno da recarga</h3>
     <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Cilindro <b>Nº ${esc(String(EQ.num??"—"))}</b>
       (${esc(String(EQ.tipo||EQ.agp||"—"))} ${esc(String(EQ.carga??EQ.cgp??""))})<br>
@@ -2028,7 +2033,7 @@ window.confirmaRetornoRecarga=async()=>{
   if(!podeGravar())return;
   if(!EQ||!emManutencao(EQ)){$("dlg").close();return toast("A tela foi atualizada em segundo plano. Abra o cilindro de novo.");}
   const seq=String(EQ.seq),num=EQ.num;
-  const dt=$("rcData").value||new Date().toISOString().slice(0,10);
+  const dt=$("rcData").value||dataLocal();
   const m2=$("rcM2").value||null,m3=$("rcM3").value||null;
   const anterior={...(OVR[seq]||{})};
   const novo={...anterior};
@@ -2156,7 +2161,7 @@ window.exportEquipXLSX=async()=>{
   const cols=ext
     ?["Local","Nº do cilindro","Agente extintor","Carga","Fabricante","Data de fabricação","Última inspeção","Próx. Man. 2º Nível","Próx. Man. 3º Nível","Situação"]
     :["ID","Patrimônio","Tipo","Capacidade","Fabricante","Data de fabricação","Última inspeção","Próx. Manutenção","Próx. T. Hidrostático","Situação"];
-  cabecalho(ws,`Lista de Equipamentos — ${ext?"Extintores":"Hidrantes"}  `,cols.length,new Date().toISOString().slice(0,7),hoje);
+  cabecalho(ws,`Lista de Equipamentos — ${ext?"Extintores":"Hidrantes"}  `,cols.length,dataLocal().slice(0,7),hoje);
   cols.forEach((c,i)=>{const cell=ws.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
   ws.getRow(7).height=30;
   setWidths(ws,{A:16,B:16,C:16,D:12,E:18,F:16,G:14,H:16,I:16,J:16});
@@ -2180,7 +2185,7 @@ window.exportEquipXLSX=async()=>{
       if(cn===10&&l.sit.k==="manut")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE9D5FF"}};});
     r++;}
   ws.autoFilter={from:{row:9,column:1},to:{row:9,column:cols.length}};
-  await baixaXLSX(wb,`Lista_${ext?"Extintores":"Hidrantes"}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await baixaXLSX(wb,`Lista_${ext?"Extintores":"Hidrantes"}_${dataLocal()}.xlsx`);
   toast("✅ Planilha gerada!");};
 
 let LIST_N=30;
@@ -2398,7 +2403,7 @@ window.irPara=(t,id)=>{
 function desenhaGraficos(){
   const g1=$("graf1"),g2=$("graf2");if(!g1)return;
   const meses=[];const d=new Date();
-  for(let i=5;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1);meses.push(m.toISOString().slice(0,7));}
+  for(let i=5;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1);meses.push(dataLocal(m).slice(0,7));}
   g1.innerHTML="<b>📈 Conformidade por mês</b><br>"+meses.map(m=>{
     const arr=ITENS.filter(i=>i.mes===m);const nc=arr.filter(i=>i.conformidade==="NC").length;
     const pc=arr.length?Math.round(100*(arr.length-nc)/arr.length):0;
@@ -2556,7 +2561,7 @@ window.historicoCilindro=num=>{
     ev.push({d:c.data,cor:"var(--cd)",t:`⛔ Condenado — ${esc(c.motivoTexto||c.motivo||"")}`,
       s:`${fmtBR(c.data)} · Relatório ${esc(c.relatorio||"—")} · ${esc(c.registradoPor||"—")}`
         +(c.obs?`<br>${esc(c.obs)}`:"")});
-    if(c.ativo===false)ev.push({d:new Date(c.desfeitoEm||Date.now()).toISOString().slice(0,10),
+    if(c.ativo===false)ev.push({d:dataLocal(c.desfeitoEm||Date.now()),
       cor:"var(--cinza2)",t:"↩️ Condenação desfeita",
       s:`${esc(c.desfeitoPor||"—")}`});});
   ev.sort((a,b)=>String(b.d||"").localeCompare(String(a.d||"")));
@@ -2596,7 +2601,7 @@ window.exportCondenados=async()=>{
   const hoje=new Date().toLocaleDateString("pt-BR");
   const COLS=["Nº do cilindro","Agente","Carga","Fabricação","Posição de origem","Era reserva",
               "Motivo","Detalhe do motivo","Data da condenação","Nº do relatório","Observação","Registrado por"];
-  cabecalho(ws,"RELATÓRIO DE CILINDROS CONDENADOS",COLS.length,fA?`${fA}-01`:new Date().toISOString().slice(0,7),hoje);
+  cabecalho(ws,"RELATÓRIO DE CILINDROS CONDENADOS",COLS.length,fA?`${fA}-01`:dataLocal().slice(0,7),hoje);
   const rh=ws.getRow(10);
   COLS.forEach((c,i)=>{rh.getCell(i+1).value=c;headerCell(rh.getCell(i+1),false);});
   rh.height=30;
@@ -2607,7 +2612,7 @@ window.exportCondenados=async()=>{
      fmtBR(c.data),String(c.relatorio||""),String(c.obs||""),String(c.registradoPor||"")]
       .forEach((v,i)=>{r.getCell(i+1).value=v;dataCell(r.getCell(i+1),false,false);});});
   setWidths(ws,{1:14,2:10,3:10,4:12,5:34,6:11,7:30,8:28,9:16,10:20,11:34,12:22});
-  await baixaXLSX(wb,`Condenados_${fA||"todos"}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await baixaXLSX(wb,`Condenados_${fA||"todos"}_${dataLocal()}.xlsx`);
   toast(`⬇️ ${arr.length} cilindro(s) exportado(s).`);};
 
 /* ---------- Detalhe ---------- */
@@ -3369,7 +3374,7 @@ window.backupJSON=()=>{
   const data={geradoEm:new Date().toISOString(),inspecoes:ITENS,movimentacoes:MOVS,cadastroOverrides:OVR,cadastroCustom:CADX};
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:"application/json"}));
-  a.download=`backup_incendio_${new Date().toISOString().slice(0,10)}.json`;a.click();
+  a.download=`backup_incendio_${dataLocal()}.json`;a.click();
   localStorage.setItem("lastBackup",Date.now());audit("backup",null);toast("💾 Backup baixado!");};
 
 /* ---------- Zerar dados (recomeçar do cadastro embutido) ----------
@@ -3614,7 +3619,7 @@ window.abrirCondenacao=(numFixo)=>{
   if(!ISADMIN)return toast("Apenas o administrador pode condenar um cilindro.");
   const fixo=numFixo?String(numFixo):"";
   const eq=fixo?CAD.ext.find(e=>chaveCil(e.num)===chaveCil(fixo)):null;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=dataLocal();
   const ultimoRel=CONDS.length?(CONDS[0].relatorio||""):"";
   $("dlgBody").innerHTML=`<h3 style="color:var(--cd)">⛔ Condenar cilindro</h3>
     ${fixo?`<div class="auto" style="border-left-color:var(--cd)">
