@@ -529,9 +529,9 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot as _onSnapshot, query, orderBy, getDocs, limit, where, deleteField, arrayUnion, arrayRemove, FieldPath } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
 /* ======== MODO TESTE — LE DADOS REAIS, GRAVA EM COPIAS teste_* ========
@@ -1152,6 +1152,7 @@ window.toggleEngex=async()=>{
     const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
     const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;});
     novoSeq=await proxSeqSeguro(true);
+    if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
     OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
@@ -1161,7 +1162,7 @@ window.toggleEngex=async()=>{
     /* grava SO esta posicao (e, quando há manutenção nova, o extAdd inteiro — não
        tem como gravar só um item de um array). Antes regravava o mapa inteiro a
        partir da memoria: um aparelho com estado antigo apagava o trabalho dos outros. */
-    const okCadxAdd=novoSeq?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okCadxAdd=novoSeq?await comTimeout(gravaCADX()):true;
     const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
     const okMov=vaiParaManut?await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataHoje(),
       motivo:"Reserva Engex",posicao:seqOriginal,loc:locOriginal,saiu:numOriginal,entrou:null,
@@ -1203,6 +1204,7 @@ window.confirmaMigraEngexAntigos=async()=>{
     const e=CAD.ext.find(x=>String(x.seq)===s);if(!e||!e.num)continue;
     const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=e[c]??null;});
     const novoSeq=await proxSeqSeguro(true);
+    if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
     OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||""};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
@@ -1211,7 +1213,7 @@ window.confirmaMigraEngexAntigos=async()=>{
     registrados.push({seqOrigem:e.seq,loc:e.loc||"",num:doEQ.num});}
   if(!registrados.length){$("dlg").close();return toast("Nada para migrar — os itens marcados não têm Nº de cilindro.");}
   try{
-    const okCadxAdd=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okCadxAdd=await comTimeout(gravaCADX());
     const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
     let okMov=true;
     for(const r of registrados){
@@ -1395,6 +1397,7 @@ window.sair=()=>signOut(auth);
 if(configOK) onAuthStateChanged(auth,u=>{
   $("login").classList.toggle("hidden",!!u);
   $("app").classList.toggle("hidden",!u);
+  if(!u)pararEscutas();
   if(u){
     recalcAdmin();
     carregarNome(u).then(()=>{
@@ -1590,9 +1593,9 @@ function pedeConfirmacao(d){return new Promise(res=>{
   $("dlgBody").innerHTML=`
     <h3 style="color:var(--warn)">⚠️ Divergência com o padrão cadastrado</h3>
     <div class="divergBox">
-      ${d.dAg?`Agente padrão: <b>${EQ.agp}</b> → informado: <b>${d.tl}</b><br>`:""}
-      ${d.dCg?`Carga padrão: <b>${EQ.cgp}</b> → informada: <b>${d.cl}</b><br>`:""}
-      <br>O agente e/ou o peso informados <b>divergem do cadastrado como padrão</b> para este extintor (Nº ${EQ.num??EQ.seq}).
+      ${d.dAg?`Agente padrão: <b>${esc(EQ.agp)}</b> → informado: <b>${esc(d.tl)}</b><br>`:""}
+      ${d.dCg?`Carga padrão: <b>${esc(EQ.cgp)}</b> → informada: <b>${esc(d.cl)}</b><br>`:""}
+      <br>O agente e/ou o peso informados <b>divergem do cadastrado como padrão</b> para este extintor (Nº ${esc(String(EQ.num??EQ.seq))}).
     </div>
     <label>Compreendo a divergência e este equipamento será colocado no lugar do padrão</label>
     <select id="dvOk"><option>Não</option><option>Sim</option></select>
@@ -1688,6 +1691,56 @@ window.salvar=async()=>{
 
 /* ---------- Lista ---------- */
 let OVR={},MOVS=[],CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[]};
+/* ---------- Gravacao do cadastroCustom so com o que mudou ----------
+   O documento era regravado INTEIRO com o CADX deste aparelho. Se outro admin tinha
+   mexido no cadastro nesse meio tempo (ou este aparelho estava sem sinal e com a tela
+   velha), o trabalho dele era desfeito sem aviso — a mesma armadilha ja corrigida no
+   cadastroExt. Agora compara o CADX com a ultima leitura do servidor (CADX_SRV) e sobe
+   so a diferenca: chave por chave nos mapas (extEdit/hidEdit) e item por item nas
+   listas (extAdd/extDel...), com arrayUnion/arrayRemove, que o servidor aplica por
+   cima do que estiver la. */
+let CADX_SRV=null;
+const _ehMapa=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+const _estavel=v=>JSON.stringify(v,(k,x)=>_ehMapa(x)?Object.keys(x).sort().reduce((o,c)=>(o[c]=x[c],o),{}):x);
+/* devolve ate 3 gravacoes {dados,campos}. campos = lista -> grava com mergeFields
+   (substitui exatamente aquelas chaves); campos = null -> grava com merge:true.
+   arrayUnion/arrayRemove NAO podem ir com mergeFields: o campo listado e zerado antes
+   de aplicar, e o item que outro admin acrescentou some (visto no teste com emulador).
+   E remover e acrescentar no mesmo campo nao cabem na mesma gravacao. */
+function difCADX(srv,loc,fv){
+  srv=srv||{};loc=loc||{};
+  const d1={},c1=[],dR={},dU={};
+  for(const k of new Set([...Object.keys(srv),...Object.keys(loc)])){
+    const a=srv[k],b=loc[k];
+    if((a===undefined||_ehMapa(a))&&(b===undefined||_ehMapa(b))&&(a!==undefined||b!==undefined)){
+      for(const s of new Set([...Object.keys(a||{}),...Object.keys(b||{})])){
+        const va=a?.[s],vb=b?.[s];
+        if(vb===undefined){if(va===undefined)continue;(d1[k]=d1[k]||{})[s]=fv.del();c1.push(fv.path(k,s));}
+        else if(va===undefined||_estavel(va)!==_estavel(vb)){(d1[k]=d1[k]||{})[s]=vb;c1.push(fv.path(k,s));}}
+    }else if((a===undefined||Array.isArray(a))&&(b===undefined||Array.isArray(b))){
+      const ka=(a||[]).map(_estavel),kb=(b||[]).map(_estavel);
+      const sai=(a||[]).filter((x,i)=>!kb.includes(ka[i]));
+      const entra=(b||[]).filter((x,i)=>!ka.includes(kb[i]));
+      if(sai.length)dR[k]=fv.remove(sai);
+      if(entra.length)dU[k]=fv.union(entra);
+    }else if(_estavel(a)!==_estavel(b)){d1[k]=b===undefined?fv.del():b;c1.push(fv.path(k));}}
+  const ops=[];
+  if(c1.length)ops.push({dados:d1,campos:c1});
+  if(Object.keys(dR).length)ops.push({dados:dR,campos:null});
+  if(Object.keys(dU).length)ops.push({dados:dU,campos:null});
+  return ops;}
+const _FV={del:()=>deleteField(),union:l=>arrayUnion(...l),remove:l=>arrayRemove(...l),path:(...p)=>new FieldPath(...p)};
+/* sem lote: grava e devolve a promessa (para o comTimeout). Com lote: so enfileira.
+   Varias gravacoes vao num lote so: ou todas entram, ou nenhuma. */
+const _opcCADX=o=>o.campos?{mergeFields:o.campos}:{merge:true};
+function gravaCADX(lote){
+  const ref=doc(db,"config","cadastroCustom");
+  const ops=difCADX(CADX_SRV,CADX,_FV);
+  if(lote){ops.forEach(o=>lote.set(ref,o.dados,_opcCADX(o)));return lote;}
+  if(!ops.length)return Promise.resolve();
+  if(ops.length===1)return setDoc(ref,ops[0].dados,_opcCADX(ops[0]));
+  const b=writeBatch(db);ops.forEach(o=>b.set(ref,o.dados,_opcCADX(o)));
+  return b.commit();}
 function aplicaOvr(){
   /* extReset=true: o cadastro embutido foi substituído pelo da nuvem (após renumeração de locais) */
   CAD.ext=(CADX.extReset?[]:CAD0.ext.filter(e=>!CADX.extDel.map(String).includes(String(e.seq)))).map(e=>({...e}));
@@ -1731,7 +1784,13 @@ function pintaFila(n){
    do modulo de condenados. */
 const erroLeitura=nome=>err=>{console.error("[leitura "+nome+"]",err);
   toast("\u26a0\ufe0f Falha ao ler "+nome+": "+(err.code||err.message));};
+/* guarda o "parar" de cada escuta: sem isto, sair e entrar de novo sem recarregar a
+   pagina duplicava todas elas, e depois do "Sair" cada uma disparava "Falha ao ler". */
+let _ESCUTAS=[];
+function pararEscutas(){_ESCUTAS.forEach(f=>{try{f();}catch(e){}});_ESCUTAS=[];}
 function escutar(){
+  pararEscutas();
+  const onSnapshot=(...a)=>{const f=_onSnapshot(...a);_ESCUTAS.push(f);return f;};
   onSnapshot(query(collection(db,"inspecoes"),orderBy("criadoEm","desc"),limit(LIMITE_INSP)),
     {includeMetadataChanges:true},snap=>{
       ITENS=snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -1739,7 +1798,10 @@ function escutar(){
       pintaFila(snap.docs.filter(d=>d.metadata.hasPendingWrites).length);
       mesclaExtras();render();},erroLeitura("inspecoes"));
   onSnapshot(doc(db,"config","cadastroExt"),s=>{OVR=s.exists()?(s.data().overrides||{}):{};aplicaOvr();},erroLeitura("cadastro"));
-  onSnapshot(doc(db,"config","cadastroCustom"),s=>{if(s.exists())CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[],...s.data()};aplicaOvr();},erroLeitura("cadastro custom"));
+  onSnapshot(doc(db,"config","cadastroCustom"),s=>{
+    /* copia separada: o CADX e alterado na memoria antes de gravar, a copia nao */
+    CADX_SRV=s.exists()?JSON.parse(JSON.stringify(s.data())):{};
+    if(s.exists())CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[],...s.data()};aplicaOvr();},erroLeitura("cadastro custom"));
   onSnapshot(doc(db,"config","admins"),s=>{ADMINS=s.exists()?(s.data().emails||[]):[];recalcAdmin();},erroLeitura("admins"));
   onSnapshot(query(collection(db,"movimentacoes"),orderBy("criadoEm","desc")),snap=>{
     MOVS=snap.docs.map(d=>({id:d.id,...d.data()}));renderMovs();},erroLeitura("movimenta\u00e7\u00f5es"));
@@ -1772,8 +1834,8 @@ window.abrirTroca=()=>{
   if(!reservas.length&&!outros.length)return toast("Nenhum outro extintor disponível.");
   $("dlgBody").innerHTML=`
     <h3>🔁 Substituição por reserva</h3>
-    <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Sai para recarga: <b>Nº ${EQ.num??"—"} (${EQ.tipo||EQ.agp||""} ${EQ.carga??""})</b><br>
-    Posição: <b>Ext ${EQ.seq} — ${EQ.loc||""}</b> · padrão <b>${EQ.agp||"—"} ${EQ.cgp||""}</b></p>
+    <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Sai para recarga: <b>Nº ${esc(String(EQ.num??"—"))} (${esc(EQ.tipo||EQ.agp||"")} ${esc(String(EQ.carga??""))})</b><br>
+    Posição: <b>Ext ${esc(String(EQ.seq))} — ${esc(EQ.loc||"")}</b> · padrão <b>${esc(EQ.agp||"—")} ${esc(EQ.cgp||"")}</b></p>
     <label>Digite o nº do cilindro que entra</label>
     <div class="ac-wrap">
       <input id="trBusca" autocomplete="off" placeholder="ex.: 1234 — puxa as informações do cilindro" oninput="trFiltra()">
@@ -1781,8 +1843,8 @@ window.abrirTroca=()=>{
     </div>
     <label>Ou escolha na lista (reserva ou outro ponto)</label>
     <select id="trSel">
-      ${reservas.length?`<optgroup label="Reservas">${reservas.map(r=>`<option value="${r.seq}">Nº ${r.num} — ${r.tipo||""} ${r.carga??""} · fab. ${r.fab?fmtBR(r.fab):"—"}</option>`).join("")}</optgroup>`:""}
-      ${outros.length?`<optgroup label="Outros pontos (correção de cadastro — trocam de posição)">${outros.map(r=>`<option value="${r.seq}">Nº ${r.num} — ${r.tipo||""} ${r.carga??""} · Ext ${r.seq} · ${esc(String(r.loc||"").slice(0,38))}</option>`).join("")}</optgroup>`:""}
+      ${reservas.length?`<optgroup label="Reservas">${reservas.map(r=>`<option value="${esc(String(r.seq))}">Nº ${esc(String(r.num))} — ${esc(r.tipo||"")} ${esc(String(r.carga??""))} · fab. ${r.fab?esc(fmtBR(r.fab)):"—"}</option>`).join("")}</optgroup>`:""}
+      ${outros.length?`<optgroup label="Outros pontos (correção de cadastro — trocam de posição)">${outros.map(r=>`<option value="${esc(String(r.seq))}">Nº ${esc(String(r.num))} — ${esc(r.tipo||"")} ${esc(String(r.carga??""))} · Ext ${esc(String(r.seq))} · ${esc(String(r.loc||"").slice(0,38))}</option>`).join("")}</optgroup>`:""}
     </select>
     <button class="btn sec" style="margin-top:10px;padding:9px;font-size:13px" onclick="qrTroca()">📷 Ler QR do extintor que entra</button>
     <div id="trDiv"></div>
@@ -1860,6 +1922,7 @@ window.confirmaCorrecaoLocal=async()=>{
      esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
   ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
+  const _ovrAntesCL={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(ySeq)]:OVR[String(ySeq)]};
   {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false,seqSlot=null;
@@ -1867,6 +1930,9 @@ window.confirmaCorrecaoLocal=async()=>{
     const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
     if(slot){OVR[String(slot.seq)]=dX;seqSlot=slot.seq;}
     else{const seqNovaReserva=await proxSeqSeguro(true);
+      if(seqNovaReserva==null){  /* devolve as duas posicoes como estavam */
+        for(const k in _ovrAntesCL){if(_ovrAntesCL[k]===undefined)delete OVR[k];else OVR[k]=_ovrAntesCL[k];}
+        return;}
       CADX.extAdd.push({seq:seqNovaReserva,pat:null,agp:null,cgp:null,loc:"Reserva",...dX,criado:dataHoje()});novaReserva=true;}
   }
   /* {merge:true} NAO basta: com o mapa OVR inteiro no corpo, as 357 posicoes sao
@@ -1876,7 +1942,7 @@ window.confirmaCorrecaoLocal=async()=>{
   [EQ.seq,ySeq].concat(seqSlot!=null?[seqSlot]:[]).forEach(sq=>{_patch[String(sq)]=OVR[String(sq)];});
   try{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
-    const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okCadx=novaReserva?await comTimeout(gravaCADX()):true;
     const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataLocal(),
       /* o registro de movimentacao tambem afirmava que a troca aconteceu mesmo quando
          o cadastro nao confirmou — agora ele carrega o resultado junto */
@@ -1930,7 +1996,7 @@ window.trDiverg=()=>{
   const cgR=(r.carga!=null&&String(r.carga).trim()!=="")?String(r.carga):(r.cgp||"");
   const dAg=EQ.agp&&r.tipo&&normAg(r.tipo)!==normAg(EQ.agp);
   const dCg=EQ.cgp&&cgR&&normCg(cgR)!==normCg(EQ.cgp);
-  $("trDiv").innerHTML=(dAg||dCg)?`<div class="divergBox">⚠️ O reserva selecionado (<b>${r.tipo||""} ${cgR}</b>) diverge do padrão desta posição (<b>${EQ.agp} ${EQ.cgp}</b>).
+  $("trDiv").innerHTML=(dAg||dCg)?`<div class="divergBox">⚠️ O reserva selecionado (<b>${esc(r.tipo||"")} ${esc(cgR)}</b>) diverge do padrão desta posição (<b>${esc(EQ.agp||"")} ${esc(EQ.cgp||"")}</b>).
     <label>Compreendo a divergência e este será colocado no lugar</label>
     <select id="trOk"><option>Não</option><option>Sim</option></select></div>`:"";};
 window.confirmaTroca=async()=>{
@@ -1961,6 +2027,7 @@ window.confirmaTroca=async()=>{
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
+    audit(eraReserva?"troca_por_reserva":"troca_entre_locais",{local:EQ.seq,saiu:doEQ.num,entrou:doR.num,deOnde:r.seq},okCad&&okMov);
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
@@ -2869,16 +2936,30 @@ window.salvaInspetor=async()=>{
   const nome=$("uNome").value.trim(),email=$("uEmail").value.trim(),senha=$("uSenha").value;
   const perfil=$("uPerfil")?$("uPerfil").value:"inspetor";
   if(!email||senha.length<6)return toast("Informe e-mail e senha com 6+ caracteres.");
+  /* O login do Firebase nao tem copia de teste: no ambiente de teste a conta seria
+     criada DE VERDADE, mas o perfil iria para teste_usuarios — na producao a pessoa
+     entraria como inspetor com permissao de gravar, qualquer que fosse o perfil. */
+  if(MODO_TESTE)return toast("Ambiente de teste: criar acesso cria uma conta real. Crie o usuário no app de produção.");
   const btn=event.target;btn.disabled=true;btn.textContent="Criando…";
+  let app2=null;
   try{
-    const app2=initializeApp(firebaseConfig,"criaUsuario"+Date.now());
+    app2=initializeApp(firebaseConfig,"criaUsuario"+Date.now());
     const auth2=getAuth(app2);
     const cred=await createUserWithEmailAndPassword(auth2,email,senha);
-    try{await setDoc(doc(db,"usuarios",cred.user.uid),{nome,email,perfil});}catch(e){}
+    /* o perfil e o que diz se a conta e de teste (nao grava) ou inspetor/admin.
+       Antes a falha aqui era engolida e a conta ficava como inspetor sem ninguem saber. */
+    let okPerfil=false,erroPerfil="";
+    try{okPerfil=await comTimeout(setDoc(doc(db,"usuarios",cred.user.uid),{nome,email,perfil}),8000);}
+    catch(e){erroPerfil=e.code||e.message;console.error("[perfil do novo usuario]",e);}
     await signOut(auth2);
-    audit("novo_usuario",{email,nome,perfil});
-    $("dlg").close();toast(`✅ Acesso criado como ${PERFIS[perfil]} — já pode entrar no app!`);
+    audit("novo_usuario",{email,nome,perfil},okPerfil);
+    $("dlg").close();
+    if(okPerfil)toast(`✅ Acesso criado como ${PERFIS[perfil]} — já pode entrar no app!`);
+    else alert(`⚠️ A conta ${email} foi criada, mas o PERFIL (${PERFIS[perfil]}) não foi confirmado no sistema`
+      +(erroPerfil?` (${erroPerfil})`:"")+`.\n\nAbra "👥 Usuários e perfis" e confira o perfil dessa pessoa antes de ela entrar — `
+      +`sem o perfil ela entra como Inspetor, com permissão de gravar.`);
   }catch(e){toast("Erro: "+(e.code==="auth/email-already-in-use"?"este e-mail já tem acesso.":e.message));}
+  if(app2)try{await deleteApp(app2);}catch(e){}
   btn.disabled=false;btn.textContent="Criar acesso";};
 /* ---------- Usuários e perfis ---------- */
 let USERS=[];
@@ -2998,6 +3079,7 @@ window.renomearUsuario=async uid=>{
 window.resetSenha=async uid=>{
   if(!ISADMIN)return;
   const u=USERS.find(x=>x.uid===uid);if(!u||!u.email)return toast("Usuário sem e-mail cadastrado.");
+  if(MODO_TESTE)return toast("Ambiente de teste: o e-mail de senha seria enviado de verdade. Use o app de produção.");
   if(!confirm(`Enviar e-mail de redefinição de senha para ${u.email}?`))return;
   try{
     await sendPasswordResetEmail(auth,u.email);
@@ -3768,7 +3850,7 @@ window.desfazerCondenacao=async(id)=>{
 /* ---------- Cadastro editável (admin) ---------- */
 async function salvaCADX(acao,det){
   if(!podeGravar())return;
-  try{const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+  try{const okCadx=await comTimeout(gravaCADX());
     aplicaOvr();audit(acao,det,okCadx);$("dlg").close();avisaGravacao(okCadx,"✅ Cadastro atualizado!");}
   catch(e){toast("Erro: "+e.message);}}
 /* ---------- Novo local (posição vazia, sem cilindro) ----------
@@ -3817,7 +3899,7 @@ window.salvaNovoLocal=async()=>{
   CADX.extAdd.push(novo);
   try{
     const okOvrNL=await alinhaOvrNovaPosicao(novo);
-    const okNL=(await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)))&&okOvrNL;
+    const okNL=(await comTimeout(gravaCADX()))&&okOvrNL;
     aplicaOvr();audit("novo_local",{seq,loc,padrao:`${novo.agp} ${cgp}`},okNL);
     try{render();}catch(e){}
     $("dlg").close();
@@ -3862,11 +3944,11 @@ const seqsComHistoricoExt=()=>{
    inspeções mais recentes (ver LIMITE_INSP); um ID com inspeção só em mês antigo,
    fora dessa janela, passaria pela checagem de cima como "sem histórico". Usada
    sempre que uma troca de ID/patrimônio vai GRAVAR de verdade, não só na tela. */
-async function temInspecaoNoBanco(tipo,campo,valor){
+async function temInspecaoNoBanco(tipo,campo,valor,lancaErro=false){
   try{
     const snap=await getDocs(query(collection(db,"inspecoes"),where(campo,"==",valor)));
     return snap.docs.some(d=>d.data().tipo===tipo);
-  }catch(e){return true;} /* consulta falhou: mais seguro recusar a troca do que arriscar */
+  }catch(e){if(lancaErro)throw e;return true;} /* consulta falhou: mais seguro recusar a troca do que arriscar */
 }
 /* extDel entra aqui para o "proximo ID livre" nao cair sozinho num ID removido:
    quem quiser reaproveitar um ID removido informa o numero na mao, e ai a remocao
@@ -3912,10 +3994,18 @@ const proxSeqReserva=()=>{
    histórico dos dois. Repete a mesma conta de proxSeqExt/proxSeqReserva,
    mas confere cada candidato direto no banco antes de aceitar. Usar sempre
    que o ID for de fato gravado (não nas telas que só sugerem um número). */
+/* Devolve null (e avisa) se o banco nao responder: antes, uma consulta com erro contava
+   como "ID com historico" e o laco pulava para o proximo numero para sempre, consultando
+   o banco sem parar. Quem chama desfaz o que ja mexeu na memoria e para. */
 async function proxSeqSeguro(reserva){
+  let consultas=0;
   for(let n=reserva?tetoFixoExt()+1:1;;n++){
     if(seqsOcupadosExt().has(n)||seqsComHistoricoExt().has(n))continue;
-    if(!(await temInspecaoNoBanco("ext","eqSeq",n)))return n;}}
+    if(++consultas>60){toast("⚠️ Não achei um ID livre após 60 tentativas. Nada foi gravado.");return null;}
+    try{if(!(await temInspecaoNoBanco("ext","eqSeq",n,true)))return n;}
+    catch(e){console.error("[proxSeqSeguro]",e);
+      toast("⚠️ Não consegui consultar o banco para escolher o ID ("+(e.code||e.message)+"). Nada foi gravado — tente de novo com conexão.");
+      return null;}}}
 window.salvaNovoExt=async()=>{
   if(!podeGravar())return;
   const loc=$("cLoc").value.trim()||"Reserva";
@@ -3934,7 +4024,9 @@ window.salvaNovoExt=async()=>{
   const want=parseInt($("cSeq").value,10);
   const existe=want&&CAD.ext.find(x=>+x.seq===want);
   if(!want||!existe){
-    novo.seq=want||(isReserva(novo)?await proxSeqSeguro(true):await proxSeqSeguro(false));if(!novo.pat)novo.pat=novo.seq;
+    novo.seq=want||(isReserva(novo)?await proxSeqSeguro(true):await proxSeqSeguro(false));
+    if(novo.seq==null)return;
+    if(!novo.pat)novo.pat=novo.seq;
     CADX.extAdd.push(novo);
     if(!await alinhaOvrNovaPosicao(novo))
       toast("\u26a0\ufe0f O cadastro do local ainda n\u00e3o confirmou no sistema. Confira depois de recarregar.");
@@ -3960,7 +4052,7 @@ window.salvaNovoExt=async()=>{
   try{
     const lote=writeBatch(db);
     lote.set(doc(db,"config","cadastroExt"),{overrides:OVR});
-    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    gravaCADX(lote);
     await lote.commit();
     aplicaOvr();audit("renumerar_locais",{aPartirDe:want,num:novo.num});
     $("dlg").close();
@@ -4070,7 +4162,7 @@ window.confirmaAlteraId=async()=>{
        alinhado. Em gravacoes separadas, uma falha deixaria o equipamento no ID novo
        com os dados do ocupante anterior. O lote grava os dois ou nenhum. */
     const lote=writeBatch(db);
-    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    gravaCADX(lote);
     lote.set(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true});
     await lote.commit();
     aplicaOvr();
@@ -4123,7 +4215,7 @@ window.confirmaAlteraPatHid=async()=>{
       const base=CAD0.hid.find(h=>+h.seq===+seqAtual);
       const chave=String(base?.pat??patAtual);
       CADX.hidEdit[chave]={...(CADX.hidEdit[chave]||{}),pat:novoPat};}
-    const ok=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const ok=await comTimeout(gravaCADX());
     if(!ok){CADX=cadxAntes;return toast("⚠️ Não gravou agora — nada foi alterado. Tente de novo.");}
     aplicaOvr();
     const achou=CAD.hid.find(h=>+h.seq===+seqAtual);
@@ -4333,7 +4425,7 @@ window.limparPadraoReservasSelecionadas=async()=>{
     CADX.extEdit[seq]={...(CADX.extEdit[seq]||{}),agp:null,cgp:null};
     if(OVR[seq]){OVR[seq]={...OVR[seq],agp:null,cgp:null};patchOvr[seq]=OVR[seq];}});
   try{
-    const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okCadx=await comTimeout(gravaCADX());
     let okOvr=true;
     if(Object.keys(patchOvr).length)okOvr=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true}));
     aplicaOvr();audit("limpar_padrao_reservas_em_lote",{qtd:sel.length},okCadx&&okOvr);$("dlg").close();
@@ -4421,6 +4513,10 @@ window.processaLote=async modo=>{
   const tq=$("lTipoEq").value;
   const f=$("lFile").files[0];if(!f)return toast("Selecione o arquivo .xlsx.");
   if(!validaXlsx(f))return;
+  /* se a leitura parar no meio, as linhas ja processadas nao podem ficar no CADX/OVR da
+     memoria: a proxima gravacao de qualquer outra tela as mandaria junto */
+  const _cadxAntesLote=JSON.parse(JSON.stringify(CADX)),_ovrAntesLote=JSON.parse(JSON.stringify(OVR));
+  let _gravando=false;
   try{
     const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());
     const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
@@ -4456,6 +4552,7 @@ window.processaLote=async modo=>{
              anteriores deste mesmo lote, então não há colisão ao reaproveitar vãos */
           const ehReserva=!locRaw||/^\s*reserva/i.test(locRaw);
           const seqNovo=await proxSeqSeguro(ehReserva);
+          if(seqNovo==null)throw new Error("importação interrompida na linha "+rn+", nada foi gravado");
           const novoEq={seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
             loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3,criado:dataHoje()};
           /* idem: sem isto a linha importada some se o ID ja tiver sido removido */
@@ -4585,13 +4682,16 @@ window.processaLote=async modo=>{
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
     if(modo==="edit"&&!edit&&!rem&&!renom)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
     const nOvr=Object.keys(patchOvr).length;
+    _gravando=true;
     const okOvr=nOvr?await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true})):true;
-    const okImp=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okImp=await comTimeout(gravaCADX());
     aplicaOvr();
     audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,renomeados:renom,ignoradas:pulos.slice(0,10)},okImp);
     $("dlg").close();
     avisaGravacao(okImp&&okOvr,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}${renom?` · ${renom} ID/patrimônio corrigido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
-  }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
+  }catch(e){
+    if(!_gravando){CADX=_cadxAntesLote;OVR=_ovrAntesLote;try{aplicaOvr();}catch(x){}}
+    toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Corrigir inspeções em lote ----------
    Mesmo espírito do "Corrigir cadastro em lote": baixa, edita, sobe. Só mexe no
