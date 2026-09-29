@@ -1636,7 +1636,14 @@ window.salvar=async()=>{
       obs:$("fObs").value,conformidade:confAuto(),temFoto:!!(foto1||foto2),
       divergencia:!!diverg,divergAceita,diverg:diverg||null,
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now(),
-      eqSeq:EQ.seq??null,eqNum:EQ.num??null,eqPat:EQ.pat??null,eqLoc:EQ.loc||""};
+      eqSeq:EQ.seq??null,eqNum:EQ.num??null,eqPat:EQ.pat??null,eqLoc:EQ.loc||"",
+      /* Situação do equipamento NO MOMENTO desta inspeção (reserva Engex, em
+         manutenção, etc). Sem isto, a lista de Registros e o relatório mensal
+         mostravam a situação de HOJE em cima de inspeções antigas — se o local
+         fosse marcado como reserva Engex meses depois, a inspeção antiga passava
+         a exibir "reserva Engex" mesmo tendo sido feita normal, em área. Ver
+         render() e exportXLSX() — usam este campo quando ele existe. */
+      situacaoNaHora:TIPO==="ext"?situacaoDe("ext",EQ).k:null};
     if(TIPO==="ext"){
       base.tipoLocal=$("fTipoLocal").value;base.cargaLocal=$("fCargaLocal").value;
       base.checklist={};CHK_EXT.forEach((c,i)=>base.checklist[c]=$("ck"+i).value);}
@@ -2228,7 +2235,12 @@ window.render=()=>{
   $("lista").innerHTML=(arr.length?arr.slice(0,LIST_N).map(i=>{
     const id=i.tipo==="ext"?`Nº ${i.eqNum??i.eqSeq}`:i.eqPat;
     const cd=i.tipo==="ext"?condDe(i.eqNum):null;
-    const eqAtual=i.tipo==="ext"?CAD.ext.find(x=>String(x.seq)===String(i.eqSeq)):null;
+    /* Situação NO MOMENTO da inspeção (ver comentário em salvar()). Registros
+       antigos, salvos antes desta correção, não têm esse campo — para eles não
+       dá pra saber o que era verdade naquela época, então nenhum selo de
+       reserva Engex/manutenção é mostrado (é melhor não mostrar nada do que
+       mostrar a situação de hoje, que é o problema que estamos corrigindo). */
+    const sitHora=i.situacaoNaHora;
     return `<div class="card item" onclick="abrir('${i.id}')" style="cursor:pointer">
       ${i.foto1?`<img src="${i.foto1}" ${fotoClick(i.foto1,tituloFoto(i,1),nomeArqFoto(i,1))} alt="Foto da inspeção">`:""}
       <div class="info">
@@ -2237,13 +2249,15 @@ window.render=()=>{
         ${i.divergencia?`<span class="badge" style="background:var(--warn)">⚠️ divergência</span>`:""}
         ${(i.temFoto&&!i.foto1)?`<span class="badge" style="background:var(--cinza)">📷 com foto</span>`:""}
         ${cd?`<span class="badge b-cond">⛔ CONDENADO</span>`:""}
-        ${eqAtual&&eqAtual.engex?`<span class="badge b-engex">🏢 ENGEX</span>`:""}
+        ${sitHora==="engex"?`<span class="badge b-engex">🏢 ENGEX</span>`:""}
+        ${sitHora==="manut"?`<span class="badge b-manut">🔧 MANUTENÇÃO</span>`:""}
         <h3 style="margin-top:6px">${id}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${i.eqSeq}`:""} · ${esc(i.eqLoc||"—")}</h3>
         ${i.tipo==="ext"&&(i.tipoLocal||i.cargaLocal)?`<p style="font-size:12.5px;color:var(--vinho);font-weight:700">${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</p>`:""}
         <p>${esc(i.obs||"Sem observações.")}</p>
         <div class="meta">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
         ${cd?`<div class="meta" style="color:var(--cd)">Condenado em ${fmtBR(cd.data)} · ${esc(cd.relatorio||"—")}</div>`:""}
-        ${eqAtual&&eqAtual.engex?`<div class="meta" style="color:#92400e">🏢 Local hoje com reserva Engex desde ${fmtBR(eqAtual.engexDesde)}</div>`:""}
+        ${sitHora==="engex"?`<div class="meta" style="color:#92400e">🏢 Esta inspeção foi feita com o local em reserva Engex</div>`:""}
+        ${sitHora==="manut"?`<div class="meta" style="color:#7c3aed">🔧 Esta inspeção foi feita com o equipamento em manutenção</div>`:""}
       </div></div>`;}).join("")
     :(ITENS.length
       ?`<div class="card"><div class="vazio"><span class="ic">🔍</span><b>Nenhum registro com esses filtros</b>
@@ -4674,6 +4688,13 @@ async function blocoAssinaturas(wb,ws,r,nomes){
     c.font={italic:true};c.border={top:{style:"thin"}};
     row+=3;}}
 
+/* Texto da "Situação" a partir do código salvo em insp.situacaoNaHora (ver salvar()).
+   Sem isso, o relatório de um mês fechado passava a mostrar a situação de HOJE
+   (ex: "Em manutenção") mesmo quando, naquele mês, o extintor estava em área
+   normal — porque a coluna vinha de situacaoDe(e), que sempre olha o cadastro
+   atual, e não o que era verdade na época daquela inspeção. */
+const SIT_TXT={cond:"Condenado",manut:"Em manutenção",engex:"Reserva Engex",reserva:"Reserva",area:"Em área"};
+const situacaoNoRelatorio=(e,insp)=>insp?.situacaoNaHora&&SIT_TXT[insp.situacaoNaHora]||situacaoDe("ext",e).txt;
 window.exportXLSX=async tipo=>{
   const pm=$("pMes").value;
   /* Eder pediu pra poder escolher, na hora de baixar, se quer o arquivo completo
@@ -4714,7 +4735,7 @@ window.exportXLSX=async tipo=>{
            confirmaTroca/toggleEngex). Sem o fallback, essas colunas saíam em
            branco no relatório mesmo com o cilindro certinho cadastrado. */
         row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
-          insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoDe("ext",e).txt,
+          insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoNoRelatorio(e,insp),
           toDate(e.man2),toDate(e.man3),insp?toDate(insp.data):"",
           ...CHK_EXT.map(c=>insp?.checklist?.[c]||""),obs,insp?.conformidade||""];
         ws.getCell(r,14).numFmt="mmm-yy";ws.getCell(r,15).numFmt="mmm-yy";ws.getCell(r,16).numFmt="dd/mm/yyyy";
@@ -4736,7 +4757,7 @@ window.exportXLSX=async tipo=>{
           obsResumo=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(obs?` ${obs}`:"");
         }
         resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
-          situacaoDe("ext",e).txt,insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
+          situacaoNoRelatorio(e,insp),insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
       }
       r++;}
     const inspetores=new Set(mesArr.map(i=>i.inspetor).filter(Boolean));
