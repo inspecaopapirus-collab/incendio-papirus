@@ -1,0 +1,15 @@
+{
+  "name": "Inspeção de Combate a Incêndio — Papirus",
+  "short_name": "Incêndio Papirus",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf7f7",
+  "theme_color": "#7f1d1d",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
