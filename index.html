@@ -11,49 +11,52 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--vinho:#7f1d1d;--vinho2:#5c1010;--acc:#ef4444;--claro:#fdf3f3;--cinza:#475569;--cinza2:#94a3b8;--borda:#e7dcdc;
---sombra:0 1px 2px rgba(92,16,16,.06),0 6px 20px rgba(92,16,16,.07);
---ok:#16a34a;--nc:#dc2626;--na:#94a3b8;--warn:#f59e0b;
+:root{--vinho:#7a1f24;--vinho2:#5a1519;--acc:#7a1f24;--claro:#f7eceb;--cinza:#5f5656;--cinza2:#8a8080;--borda:#e4dcda;
+--fundo:#f6f3f1;--texto:#1f1a1a;--texto2:#3d3535;--linha:#efe8e6;
+--sombra:0 1px 2px rgba(31,26,26,.05);
+--ok:#1f7a45;--nc:#b42318;--na:#5f6b7a;--warn:#b45309;
 /* significado fixo de cada cor: vinho=ação principal/extintor · azul=hidrante ·
    laranja=atenção e modo teste · verde=conforme · vermelho=não conforme ·
    vinho escuro=ação sem volta e condenado */
 --hid:#1d4ed8;--cd:#450a0a;--neutro:#475569}
-*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-h1,h2,h3,.kpi b,nav button,.btn{font-family:'Manrope','Inter',sans-serif}
-body{background:linear-gradient(180deg,#f6ecec 0%,#f8f4f4 40%,#faf7f7 100%);color:#241818;min-height:100vh}
-header{background:linear-gradient(120deg,var(--vinho2) 0%,var(--vinho) 55%,#a03030 100%);color:#fff;padding:14px 20px;
-display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;box-shadow:0 2px 16px rgba(60,10,10,.4);
-border-bottom:3px solid var(--acc)}
-header h1{font-size:16px;font-weight:800;letter-spacing:-.2px;display:flex;align-items:center;gap:9px}
-header h1::before{content:"🧯";font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Source Sans 3','Segoe UI',system-ui,sans-serif}
+h1,h2,h3,.kpi b,.btn{font-family:'Barlow','Source Sans 3',sans-serif}
+body{background:var(--fundo);color:var(--texto);min-height:100vh}
+header{background:var(--vinho);color:#fff;padding:12px 16px;
+display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50}
+header .marca{width:36px;height:36px;border-radius:9px;background:#fff;color:var(--vinho);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+header .htit{flex:1;min-width:0}
+header h1{font-size:18px;font-weight:700;line-height:1.15}
+header .hsub{font-size:13px;opacity:.85;display:block}
 .hbtn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);color:#fff;padding:7px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;transition:.2s}
 .hbtn:hover{background:rgba(255,255,255,.25)}
-nav{display:flex;background:#fff;border-bottom:1px solid var(--borda);position:sticky;top:60px;z-index:40;box-shadow:0 2px 8px rgba(127,29,29,.05)}
-nav button{flex:1;padding:11px 3px;border:none;background:none;font-size:12.5px;font-weight:600;color:var(--cinza);cursor:pointer;border-bottom:3px solid transparent;transition:.2s;min-width:0}
-nav button .ni{display:block;font-size:17px;line-height:1.15;font-weight:400}
-nav button .nt{display:block;font-size:11px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-nav button.on{color:var(--vinho);border-bottom-color:var(--acc);background:linear-gradient(180deg,transparent 70%,rgba(239,68,68,.08))}
+nav{display:flex;background:#fff;border-bottom:1px solid var(--borda);position:sticky;top:60px;z-index:40}
+nav button{flex:1;padding:8px 2px;border:none;background:none;font-size:12px;font-weight:600;color:var(--cinza);cursor:pointer;border-bottom:3px solid transparent;min-width:0}
+nav button .ni{display:flex;justify-content:center;line-height:1}
+nav button .ni svg{width:22px;height:22px}
+nav button .nt{display:block;font-size:12px;line-height:1.3;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav button.on{color:var(--vinho);font-weight:700}
 main{max-width:900px;margin:0 auto;padding:18px 16px 60px}
-.card{background:#fff;border:1px solid var(--borda);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:var(--sombra)}
-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--cinza);display:block;margin:12px 0 5px}
+.card{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:16px;margin-bottom:14px}
+label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--cinza);display:block;margin:14px 0 6px}
 /* 16px é o mínimo que impede o Safari do iPhone de dar zoom ao focar o campo */
-input,select,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--borda);border-radius:11px;font-size:16px;background:#fdfbfb;transition:.2s;font-family:inherit}
+input,select,textarea{width:100%;padding:11px 12px;min-height:44px;border:1px solid #d9d0cd;border-radius:10px;font-size:16px;background:#fff;color:var(--texto);font-family:inherit}
 @media(min-width:901px){input,select,textarea{font-size:14.5px}}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);background:#fff;box-shadow:0 0 0 3px rgba(239,68,68,.13)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--vinho);box-shadow:0 0 0 3px rgba(122,31,36,.15)}
 textarea{min-height:60px;resize:vertical}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-.btn{background:linear-gradient(135deg,#dc2626,var(--vinho));color:#fff;border:none;padding:14px;border-radius:12px;font-size:15px;font-weight:800;letter-spacing:.2px;width:100%;cursor:pointer;margin-top:14px;box-shadow:0 4px 14px rgba(92,16,16,.28);transition:.2s}
-.btn:hover{transform:translateY(-1px);box-shadow:0 7px 20px rgba(92,16,16,.35)}
+.btn{background:var(--vinho);color:#fff;border:none;padding:14px;min-height:48px;border-radius:12px;font-size:16px;font-weight:700;width:100%;cursor:pointer;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{background:var(--vinho2)}
 .btn:disabled{opacity:.6;transform:none}
-.btn.sec{background:#fff;color:var(--vinho);border:1.5px solid var(--vinho);box-shadow:none}
-.btn.sec:hover{background:#faf1f1}
-.badge{display:inline-block;padding:3px 11px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;letter-spacing:.2px}
-.auto{background:linear-gradient(135deg,#f2f2f4,#f7f7f8);border:1px solid #ddd;border-left:4px solid var(--cinza2);border-radius:12px;padding:13px;margin-top:12px;font-size:13px;line-height:1.8}
+.btn.sec{background:#fff;color:var(--vinho);border:1px solid #d9d0cd}
+.btn.sec:hover{background:var(--claro)}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;color:#fff}
+.auto{background:#faf7f6;border:1px solid var(--borda);border-radius:12px;padding:14px;margin-top:12px;font-size:15px;line-height:1.7}
 .auto b{color:var(--vinho)}
-.auto .lock{float:right;font-size:11px;color:var(--cinza2);font-weight:700}
+.auto .lock{float:right;font-size:12px;color:var(--cinza);font-weight:600;background:#efe8e6;border-radius:999px;padding:2px 10px;margin-left:8px}
 /* Ações do equipamento: uma principal em vinho, o resto atrás de "Ações do equipamento".
    Azul volta a significar só hidrante e laranja só atenção/modo teste. */
 .acoesEq{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
@@ -62,8 +65,8 @@ textarea{min-height:60px;resize:vertical}
 .abtn:hover{background:var(--vinho2)}
 .abtn.sec{background:#fff;color:var(--neutro);border-color:#cbc0c0}
 .abtn.sec:hover{background:#f7f2f2;border-color:var(--cinza2)}
-.item{display:flex;gap:13px;transition:.2s}
-.item:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(127,29,29,.12)}
+.item{display:flex;gap:13px}
+.item:hover{border-color:#cfc3c0}
 .item img{width:80px;height:80px;object-fit:cover;border-radius:12px;flex-shrink:0}
 /* Miniaturas do registro aberto e da condenação.
    Precisam ser classe, não style inline: fotoClick() já emite um style= e dois
@@ -73,9 +76,9 @@ img{max-width:100%}
 .fotosDet img{width:calc(50% - 4px);max-width:170px;height:150px;object-fit:cover;border-radius:10px}
 .fotoCond{width:150px;max-width:50%;height:150px;object-fit:cover;border-radius:10px;margin-top:10px}
 .item .info{flex:1;min-width:0}
-.item h3{font-size:14px;font-weight:700;margin:7px 0 3px;letter-spacing:-.2px}
-.item p{font-size:12.5px;color:var(--cinza);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.5}
-.meta{font-size:11px;color:#a08a8a;margin-top:5px}
+.item h3{font-size:17px;font-weight:700;margin:7px 0 3px}
+.item p{font-size:14px;color:var(--cinza);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.5}
+.meta{font-size:13px;color:var(--cinza);margin-top:5px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
 .tabWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .tabEq{border-collapse:collapse;width:100%;font-size:12.5px;min-width:760px}
@@ -83,34 +86,39 @@ img{max-width:100%}
   font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--cinza);white-space:nowrap}
 .tabEq td{padding:8px 9px;border-bottom:1px solid var(--borda);white-space:nowrap}
 .tabEq tr:hover td{background:#fafafa}
-.kpi{background:#fff;border:1px solid var(--borda);border-radius:16px;padding:16px 8px;text-align:center;box-shadow:var(--sombra);border-top:3px solid var(--acc)}
-.kpi b{font-size:24px;font-weight:800;background:linear-gradient(135deg,#dc2626,var(--vinho));-webkit-background-clip:text;background-clip:text;color:transparent;display:block;letter-spacing:-1px}
-.kpi span{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--cinza)}
+.kpi{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:14px}
+.kpi b{font-size:30px;font-weight:700;color:var(--texto);display:block;line-height:1.1}
+.kpi span{font-size:14px;color:var(--texto2)}
 .filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.filtrosDobra{margin-bottom:12px}
+.filtrosDobra>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid #d9d0cd;border-radius:10px;background:#fff;font-weight:700;font-size:15px;color:var(--vinho)}
+.filtrosDobra>summary::-webkit-details-marker{display:none}
+.filtrosDobra[open]>summary{margin-bottom:8px}
+.fQtd{background:var(--vinho);color:#fff;border-radius:999px;font-size:12px;padding:1px 8px}
+.fQtd:empty{display:none}
 .filters select,.filters input{flex:1;min-width:120px}
-.chk{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--borda);font-size:13.5px;font-weight:600}
+.chk{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--linha);font-size:16px;font-weight:600}
 .chk>span{min-width:0;overflow-wrap:anywhere}
 .chk select{padding:8px 6px;text-align:center;text-align-last:center}
-@media(min-width:520px){.chk{grid-template-columns:minmax(0,1fr) 116px}}
-.seg{display:flex;background:#f3eaea;border-radius:12px;padding:4px;margin-bottom:4px}
-.seg button{flex:1;border:none;background:none;padding:10px;border-radius:9px;font-size:14px;font-weight:700;color:var(--cinza);cursor:pointer;transition:.2s}
-.seg button.on{background:#fff;color:var(--vinho);box-shadow:0 2px 8px rgba(92,16,16,.15)}
+.seg{display:flex;background:#ebe4e1;border-radius:12px;padding:4px;margin-bottom:4px}
+.seg button{flex:1;border:none;background:none;min-height:44px;padding:10px;border-radius:9px;font-size:16px;font-weight:600;color:var(--cinza);cursor:pointer}
+.seg button.on{background:#fff;color:var(--vinho);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 #login{max-width:380px;margin:10vh auto;padding:0 16px}
 #login .card{padding:30px;border-radius:22px}
-#login .logo{width:68px;height:68px;border-radius:20px;background:linear-gradient(135deg,#dc2626,var(--vinho2));display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 16px;box-shadow:0 10px 24px rgba(92,16,16,.35);border:2px solid rgba(255,255,255,.5)}
-#login h2{color:var(--vinho);text-align:center;font-weight:800;letter-spacing:-.5px;margin-bottom:2px}
-#login p{font-size:13px;color:var(--cinza);text-align:center;margin-bottom:14px}
+#login .logo{width:64px;height:64px;border-radius:16px;background:var(--vinho);color:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+#login h2{color:var(--vinho);text-align:center;font-weight:700;font-size:26px;margin-bottom:2px}
+#login p{font-size:15px;color:var(--cinza);text-align:center;margin-bottom:14px}
 .hint{font-size:12px;color:#c0392b;margin-top:10px;text-align:center;min-height:16px}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2b1414;color:#fff;
 padding:12px 22px;border-radius:12px;font-size:13px;font-weight:500;display:none;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.35)}
 .hidden{display:none!important}
 dialog{border:none;border-radius:20px;padding:0;width:min(560px,94vw);max-height:90vh;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}
-dialog::backdrop{background:rgba(50,10,10,.5);backdrop-filter:blur(3px)}
+dialog::backdrop{background:rgba(31,26,26,.5)}
 /* cabeçalho fixo com ✕ + corpo que rola + rodapé fixo com a ação principal */
 .dwrap{display:flex;flex-direction:column;max-height:90vh}
 .dhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;
-  background:linear-gradient(120deg,var(--vinho2),var(--vinho));color:#fff;flex:0 0 auto}
-.dhead h3{font-size:15px;font-weight:800;letter-spacing:-.2px;margin:0;color:#fff;min-width:0;overflow-wrap:anywhere}
+  background:var(--vinho);color:#fff;flex:0 0 auto}
+.dhead h3{font-size:18px;font-weight:700;margin:0;color:#fff;min-width:0;overflow-wrap:anywhere}
 .dhead .dx{flex:0 0 auto;width:44px;height:44px;border:none;border-radius:50%;background:rgba(255,255,255,.16);
   color:#fff;font-size:19px;font-weight:700;cursor:pointer;line-height:1}
 .dhead .dx:hover{background:rgba(255,255,255,.3)}
@@ -146,29 +154,41 @@ dialog::backdrop{background:rgba(50,10,10,.5);backdrop-filter:blur(3px)}
 /* ---------- Barras: menu inferior no celular, lateral esquerda no PC ---------- */
 @media(max-width:900px){
  nav{position:fixed;top:auto;bottom:0;left:0;right:0;z-index:60;border-top:1px solid var(--borda);border-bottom:none;
-  box-shadow:0 -2px 14px rgba(127,29,29,.10);padding-bottom:env(safe-area-inset-bottom)}
- nav button{padding:7px 1px calc(7px);font-size:11px;border-bottom:none;border-top:3px solid transparent}
- nav button .ni{font-size:18px}
- nav button .nt{font-size:10px}
- nav button.on{border-top-color:var(--acc);border-bottom:none;background:linear-gradient(0deg,transparent 70%,rgba(239,68,68,.08))}
+  padding:4px 2px env(safe-area-inset-bottom)}
+ nav button{min-height:56px;border-bottom:none;border-top:3px solid transparent}
+ nav button{padding:8px 0}
+ nav button .nt{font-size:10.5px;letter-spacing:-.3px}
+ nav button.on{border-top-color:var(--vinho)}
  main{padding-bottom:104px}
  #toast{bottom:calc(86px + env(safe-area-inset-bottom))}
 }
 @media(min-width:901px){
- nav{position:fixed;top:0;left:0;bottom:0;width:190px;flex-direction:column;justify-content:flex-start;
-  padding-top:88px;border-right:1px solid var(--borda);border-bottom:none;box-shadow:2px 0 12px rgba(127,29,29,.05);z-index:45}
- nav button{flex:0 0 auto;text-align:left;padding:13px 18px;font-size:14px;border-bottom:none;border-left:3px solid transparent;display:flex;align-items:center;gap:10px}
- nav button .ni{font-size:17px}
- nav button .nt{font-size:14px}
- nav button.on{border-left-color:var(--acc);border-bottom-color:transparent;background:linear-gradient(90deg,rgba(239,68,68,.08),transparent)}
+ nav{position:fixed;top:0;left:0;bottom:0;width:200px;flex-direction:column;justify-content:flex-start;
+  padding-top:76px;border-right:1px solid var(--borda);border-bottom:none;z-index:45}
+ nav button{flex:0 0 auto;text-align:left;padding:12px 18px;min-height:48px;border-bottom:none;border-left:3px solid transparent;display:flex;align-items:center;gap:12px}
+ nav button .nt{font-size:16px;margin-top:0}
+ nav button.on{border-left-color:var(--vinho);background:var(--claro)}
  header{z-index:70}
- main{margin-left:190px;max-width:calc(100vw - 210px)}
- main>*{max-width:900px}
+ main{margin-left:200px;max-width:calc(100vw - 200px);padding:24px 32px 60px}
+ main>*{max-width:1100px}
+}
+/* computador: aproveita a largura em vez de esticar o layout do celular */
+@media(min-width:901px){
+ .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+ #tNovo{max-width:760px}
+ #pResumo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;align-items:start}
+ #pResumo>*{grid-column:1/-1}
+ #pResumo>details.dobra{grid-column:auto}
+}
+@media(min-width:1100px){
+ #lista{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ #lista>.card{margin-bottom:0}
+ #lista>.btn,#lista>.card:only-child{grid-column:1/-1}
 }
 @media print{header,nav,.filters,.subtabs,.btn,.abtn,.dfoot{display:none}body{background:#fff}
  .card,details.dobra{break-inside:avoid;box-shadow:none}
  details.dobra>summary{list-style:none}details.dobra .dobraIn{display:block!important}}
-@media(max-width:600px){.kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ac-wrap{position:relative}
 .autocomplete-list{position:absolute;left:0;right:0;top:100%;background:#fff;border:1.5px solid var(--borda);
   border-top:none;border-radius:0 0 12px 12px;max-height:230px;overflow-y:auto;z-index:60;box-shadow:0 10px 24px rgba(92,16,16,.18)}
@@ -194,17 +214,25 @@ dialog::backdrop{background:rgba(50,10,10,.5);backdrop-filter:blur(3px)}
   padding:13px;font-size:13px;line-height:1.75;margin-top:12px}
 .boxCond b{color:var(--cd)}
 /* ---------- Sub-abas do Painel ---------- */
-.subtabs{display:flex;gap:6px;background:#f3eaea;border-radius:13px;padding:5px;margin-bottom:14px}
-.subtabs button{flex:1;border:none;background:none;padding:10px 4px;border-radius:9px;font-size:13px;
-  font-weight:700;color:var(--cinza);cursor:pointer;min-width:0;transition:.2s}
-.subtabs button.on{background:#fff;color:var(--vinho);box-shadow:0 2px 8px rgba(92,16,16,.15)}
+.subtabs{display:flex;gap:4px;background:#ebe4e1;border-radius:12px;padding:4px;margin-bottom:14px}
+.subtabs button{flex:1 1 auto;border:none;background:none;min-height:44px;padding:8px 6px;border-radius:9px;font-size:14px;
+  font-weight:600;color:var(--cinza);cursor:pointer;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subtabs button.on{background:#fff;color:var(--vinho);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 /* ---------- Blocos recolhíveis ---------- */
-details.dobra{background:#fff;border:1px solid var(--borda);border-radius:18px;padding:0;margin-bottom:14px;box-shadow:var(--sombra)}
-details.dobra>summary{list-style:none;cursor:pointer;padding:16px 18px;font-weight:800;font-size:14px;color:var(--vinho)}
+details.dobra{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:0;margin-bottom:10px}
+details.dobra>summary{list-style:none;cursor:pointer;padding:14px 44px 14px 16px;min-height:56px;font-weight:700;font-size:16px;color:var(--texto);position:relative}
+details.dobra>summary .i{margin-right:8px}
+details.dobra>summary .sl{display:flex;align-items:center;justify-content:space-between;gap:10px}
 details.dobra>summary::-webkit-details-marker{display:none}
-details.dobra>summary::after{content:'\25BE';float:right;color:var(--cinza2);font-size:13px}
+details.dobra>summary::after{content:'\25BE';position:absolute;right:16px;top:17px;color:var(--cinza2);font-size:14px}
 details.dobra[open]>summary::after{content:'\25B4'}
-details.dobra>summary small{display:block;font-weight:500;font-size:12px;color:var(--cinza);margin-top:3px}
+details.dobra>summary small{display:block;font-weight:400;font-size:14px;color:var(--cinza);margin-top:3px;clear:both}
+details.dobra>summary .cnt{flex-shrink:0;white-space:nowrap;min-width:32px;padding:2px 9px;border-radius:999px;font-size:14px;text-align:center;background:#efe8e6;color:var(--texto2)}
+details.dobra>summary .cnt.alerta{background:#fdf1ef;color:#8f1c13}details.dobra>summary .cnt.aviso{background:#fff4e5;color:#8a4200}
+.rotAtencao{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--cinza);margin:4px 2px 8px}
+.rotaNum{display:flex;align-items:baseline;gap:8px;margin-top:6px}.rotaNum b{font:700 40px/1 'Barlow',sans-serif}.rotaNum span{font-size:16px;color:var(--texto2)}
+.barra{height:10px;border-radius:5px;background:#efe8e6;overflow:hidden;margin:10px 0 8px}.barra>div{height:100%;background:var(--ok)}
+.pendDet>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:700;color:var(--vinho);font-size:15px}
 details.dobra .dobraIn{padding:0 18px 18px}
 /* ---------- Estado vazio ---------- */
 .vazio{text-align:center;padding:26px 18px;color:var(--cinza)}
@@ -218,18 +246,97 @@ details.dobra .dobraIn{padding:0 18px 18px}
 .gbar .gl span:last-child{flex:0 0 auto;color:var(--cinza)}
 .gbar .gt{background:#eee;border-radius:6px;height:14px;overflow:hidden}
 .gbar .gt>div{height:100%}
+/* ---------- Identidade 2026: tela de inspecao ---------- */
+.sr{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;border:0!important;min-height:0!important}
+#tNovo>.seg{margin-bottom:14px}
+.seg button .i{margin-right:6px}
+.hoje{display:flex;align-items:center;gap:6px;margin-top:12px;font-size:15px;color:var(--cinza)}
+.hoje span{white-space:nowrap}
+.hoje input{border:none;background:none;padding:0;min-height:0;width:auto;flex:1;font-size:15px;color:var(--cinza);pointer-events:none;box-shadow:none}
+.cabSec{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+#chkResumo{font-size:14px;color:var(--cinza)}
+.opcoes{display:flex;border:1px solid #d9d0cd;border-radius:10px;overflow:hidden;flex-shrink:0}
+.opcoes button{min-width:52px;min-height:44px;padding:0 10px;border:none;border-left:1px solid #d9d0cd;background:#fff;color:var(--texto2);font:700 15px 'Source Sans 3',sans-serif;cursor:pointer}
+.opcoes button:first-child{border-left:none}
+.opcoes button[aria-checked="true"].vC,.opcoes button[aria-checked="true"].vSim{background:var(--ok);color:#fff}
+.opcoes button[aria-checked="true"].vNC,.opcoes button[aria-checked="true"].vNão{background:var(--nc);color:#fff}
+.opcoes button[aria-checked="true"].vNA{background:var(--na);color:#fff}
+.opcoes button:disabled{opacity:.5;cursor:not-allowed}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{min-height:44px;padding:0 16px;border:1px solid #d9d0cd;border-radius:10px;background:#fff;color:var(--texto2);font:600 15px 'Source Sans 3',sans-serif;cursor:pointer}
+.chips button[aria-checked="true"],.chips button.on{border:2px solid var(--vinho);background:var(--claro);color:var(--vinho);font-weight:700}
+#camposHid .opcoes{width:100%}#camposHid .opcoes button{flex:1;min-width:0}
+.fotos2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.fotoTile{position:relative;height:128px;margin:0;border:1px dashed #d9d0cd;border-radius:12px;background:#fff;color:var(--texto2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;text-transform:none;letter-spacing:0;overflow:hidden}
+.fotoTile b{font-size:15px;color:var(--texto)}.fotoTile .fs{font-size:13px;font-weight:400;color:var(--cinza)}
+#tileF1{background:#efe8e6;border-style:solid}
+.fotoTile.obrig{border:2px dashed var(--nc);background:#fdf1ef;color:#8f1c13}.fotoTile.obrig .fs,.fotoTile.obrig b{color:#8f1c13}
+.fotoPrev{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.fotoTile.tem .fotoPrev{display:block}
+.fotoTile.tem::after{content:"Trocar foto";position:absolute;left:8px;bottom:8px;background:rgba(31,26,26,.75);color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px}
+.fotoTile:focus-within,.fotoTile:hover{border-color:var(--vinho)}
+.resultado{border-radius:14px;padding:14px 16px;margin-top:4px;display:flex;flex-direction:column;gap:2px;background:#eef7f1;color:#1a6a3c;border:1px solid #bfe0cb}
+.resultado.nc{background:#fdf1ef;color:#8f1c13;border-color:#f3c6c0}
+.resultado .rt{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;opacity:.85}
+.resultado .rv{font:700 20px 'Barlow',sans-serif}
+.resultado .rd{font-size:14px}
+/* ---------- Identidade 2026: icones, menu do usuario ---------- */
+.i{width:20px;height:20px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-4px}
+.umenu{position:relative}
+.avatar{width:44px;height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:#fff;font:700 15px 'Source Sans 3',sans-serif;cursor:pointer}
+.avatar:hover{background:rgba(255,255,255,.22)}
+.uMenu{position:absolute;right:0;top:52px;min-width:240px;background:#fff;color:var(--texto);border:1px solid var(--borda);border-radius:12px;box-shadow:0 12px 32px rgba(31,26,26,.18);padding:6px;z-index:90}
+.uNome{padding:10px 12px 8px;border-bottom:1px solid var(--linha);margin-bottom:4px;line-height:1.35}
+.uNome b{display:block;font-size:16px}.uNome small{color:var(--cinza);font-size:13px}
+.uMenu button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 12px;border:none;background:none;border-radius:8px;font-size:16px;color:var(--texto);cursor:pointer;text-align:left}
+.uMenu button:hover{background:var(--claro)}
+.uOk{margin-left:auto;font-size:13px;color:var(--ok);font-weight:600}
 .btngrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.btngrid .btn{margin-top:0;padding:11px 8px;font-size:12.5px}
+.btngrid .btn{margin-top:0;padding:10px 8px;font-size:15px}
 @media(max-width:420px){.btngrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+<!-- Icones do app (um conjunto so, igual em Android, iPhone e computador) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<symbol id="i-ext" viewBox="0 0 24 24"><path d="M9 7h6v13a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z"/><path d="M12 7V4"/><path d="M12 4h4l2 2"/><path d="M9 12h6"/></symbol>
+<symbol id="i-hid" viewBox="0 0 24 24"><path d="M7 21h10"/><path d="M8 21V9a4 4 0 0 1 8 0v12"/><path d="M5 12h3M16 12h3"/><circle cx="12" cy="13" r="1.5"/></symbol>
+<symbol id="i-insp" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM12 11v6M9 14h6"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></symbol>
+<symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h3v-3"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+<symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V9M7 14l5-5 5 5M5 4h14"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
+<symbol id="i-print" viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+<symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
+<symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0M16 4.5a3.5 3.5 0 0 1 0 7M22 20a7 7 0 0 0-4-6.3"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 20v-3M9 20v-7M14 20V9M19 20V4"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M8 3v5h7M7 21v-7h10v7"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></symbol>
+<symbol id="i-sign" viewBox="0 0 24 24"><path d="M3 17c3-5 5-9 7-9 3 0-2 9 1 9 2 0 3-3 5-3 1.5 0 1 3 3 3h2M3 21h18"/></symbol>
+<symbol id="i-out" viewBox="0 0 24 24"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h11"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+</svg>
 
 <div id="login">
  <div class="card">
- <div class="logo" aria-hidden="true">🧯</div>
+ <div class="logo" aria-hidden="true"><svg class="i" style="width:34px;height:34px"><use href="#i-ext"/></svg></div>
  <h2>Combate a Incêndio</h2>
- <p>Papirus — Inspeção de Extintores e Hidrantes</p>
+ <p>Papirus · Inspeção de extintores e hidrantes</p>
  <label>E-mail</label><input id="lEmail" type="email" autocomplete="username">
  <label>Senha</label><input id="lSenha" type="password" autocomplete="current-password">
  <button type="button" class="btn" onclick="entrar()">Entrar</button>
@@ -239,49 +346,62 @@ details.dobra .dobraIn{padding:0 18px 18px}
 
 <div id="app" class="hidden">
 <header>
- <div><h1>Combate a Incêndio — Papirus</h1><small id="uInfo" style="opacity:.7;font-size:11px;display:block;margin-top:2px"></small><small id="filaOff" style="font-size:11px;display:none;margin-top:3px;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px"></small></div>
- <button type="button" class="hbtn" onclick="sair()" aria-label="Sair do aplicativo">Sair</button>
+ <div class="marca" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg></div>
+ <div class="htit"><h1>Combate a Incêndio</h1><span class="hsub">Papirus · Inspeção</span><small id="filaOff" style="font-size:12px;display:none;margin-top:3px;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px"></small></div>
+ <div class="umenu">
+  <button type="button" id="uBtn" class="avatar" onclick="menuUsuario(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="uMenu" aria-label="Menu do usuário">·</button>
+  <div id="uMenu" class="uMenu hidden" role="menu">
+   <div id="uInfo" class="uNome"></div>
+   <button type="button" role="menuitem" onclick="fechaMenuUsuario();mudarNome()"><svg class="i" aria-hidden="true"><use href="#i-edit"/></svg>Alterar meu nome</button>
+   <button type="button" role="menuitem" onclick="fechaMenuUsuario();assinatura()"><svg class="i" aria-hidden="true"><use href="#i-sign"/></svg>Minha assinatura<span id="uAssOk" class="uOk"></span></button>
+   <button type="button" role="menuitem" onclick="fechaMenuUsuario();sair()"><svg class="i" aria-hidden="true"><use href="#i-out"/></svg>Sair</button>
+  </div>
+ </div>
 </header>
 <nav role="tablist" aria-label="Seções do aplicativo">
- <button class="on" data-t="tNovo" onclick="tab(this)" role="tab" aria-selected="true" aria-controls="tNovo"><span class="ni" aria-hidden="true">➕</span><span class="nt">Inspeção</span></button>
- <button data-t="tLista" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tLista"><span class="ni" aria-hidden="true">📋</span><span class="nt">Registros</span></button>
- <button data-t="tVenc" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tVenc"><span class="ni" aria-hidden="true">⏰</span><span class="nt">Vencer</span></button>
- <button data-t="tPainel" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tPainel"><span class="ni" aria-hidden="true">📊</span><span class="nt">Painel</span></button>
- <button data-t="tCond" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tCond"><span class="ni" aria-hidden="true">⛔</span><span class="nt">Condenados</span></button>
+ <button class="on" data-t="tNovo" onclick="tab(this)" role="tab" aria-selected="true" aria-controls="tNovo"><span class="ni" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-insp"/></svg></span><span class="nt">Inspeção</span></button>
+ <button data-t="tLista" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tLista"><span class="ni" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-list"/></svg></span><span class="nt">Registros</span></button>
+ <button data-t="tVenc" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tVenc"><span class="ni" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg></span><span class="nt">Vencimentos</span></button>
+ <button data-t="tPainel" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tPainel"><span class="ni" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg></span><span class="nt">Painel</span></button>
+ <button data-t="tCond" onclick="tab(this)" role="tab" aria-selected="false" aria-controls="tCond"><span class="ni" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg></span><span class="nt">Condenados</span></button>
 </nav>
 <main>
 
 <!-- ================= NOVA INSPEÇÃO ================= -->
 <section id="tNovo">
- <div class="card">
- <div class="seg">
- <button id="segE" class="on" onclick="setTipo('ext')">🧯 Extintor</button>
- <button id="segH" onclick="setTipo('hid')">🚒 Hidrante</button>
+ <div class="seg" role="group" aria-label="Tipo de equipamento">
+ <button id="segE" class="on" onclick="setTipo('ext')"><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg>Extintor</button>
+ <button id="segH" onclick="setTipo('hid')"><svg class="i" aria-hidden="true"><use href="#i-hid"/></svg>Hidrante</button>
  </div>
- <label>Equipamento</label>
+ <div class="card">
+ <label for="fBusca" style="margin-top:0">Equipamento</label>
  <div class="ac-wrap">
  <input id="fBusca" autocomplete="off" placeholder="Digite nº, patrimônio ou localização…" oninput="filtraEquip()" onfocus="filtraEquip()" style="padding-right:40px">
  <button id="fLimpa" type="button" class="limpa" onclick="limpaEquip()" title="Limpar busca" aria-label="Limpar busca de equipamento">✕</button>
  <div id="dlEquip" class="autocomplete-list hidden" role="listbox" aria-label="Equipamentos encontrados"></div>
  </div>
- <button class="btn sec" style="margin-top:8px;padding:8px;font-size:13px" onclick="escanearQR()">📷 Escanear QR do equipamento</button>
+ <button class="btn sec" style="margin-top:8px" onclick="escanearQR()"><svg class="i" aria-hidden="true"><use href="#i-qr"/></svg>Ler QR do equipamento</button>
  <div class="auto hidden" id="padraoBox"></div>
- <label>Data da inspeção 🔒 (sempre o dia de hoje — não é possível registrar inspeção retroativa)</label>
- <input id="fData" type="text" readonly tabindex="-1" style="background:#f0ecec;color:var(--cinza);cursor:not-allowed;pointer-events:none">
+ <div class="hoje"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg><span>Inspeção de hoje,</span><input id="fData" type="text" readonly tabindex="-1" aria-label="Data da inspeção: sempre o dia de hoje, não é possível registrar inspeção retroativa"></div>
+ </div>
 
  <!-- Campos do extintor -->
  <div id="camposExt">
- <div class="row">
- <div><label>Tipo (agente) no local</label>
- <select id="fTipoLocal" onchange="ajustaCO2()"><option value="">Selecione…</option><option>CO2</option><option>AP</option><option>BC</option><option>EM</option><option>ABC</option><option>ABC PREMIUM</option></select></div>
- <div><label>Carga no local</label><input id="fCargaLocal" placeholder="ex.: 6kg, 10Lt"></div>
+ <div class="card">
+ <label style="margin-top:0">Encontrado no local</label>
+ <select id="fTipoLocal" onchange="ajustaCO2()"><option value="">Selecione…</option><option>CO2</option><option>AP</option><option>BC</option><option>EM</option><option>ABC</option><option>ABC PREMIUM</option></select>
+ <input id="fCargaLocal" placeholder="Carga (ex.: 6 kg, 10 L)" aria-label="Carga no local" style="margin-top:10px">
+ <div id="cgLocal"></div>
  </div>
- <label style="margin-top:16px">Checklist de conformidade</label>
+ <div class="card">
+ <div class="cabSec"><label style="margin:0">Checklist</label><span id="chkResumo"></span></div>
  <div id="chkExt"></div>
+ </div>
  </div>
 
  <!-- Campos do hidrante -->
- <div id="camposHid" class="hidden">
+ <div id="camposHid" class="hidden"><div class="card">
+ <label style="margin-top:0">Checklist do hidrante</label>
  <div class="row">
  <div><label>Adaptador Storz</label><select id="hStorz"><option>C</option><option>NC</option><option>NA</option></select></div>
  <div><label>Quantidade de Storz</label><input id="hQtdStorz" type="number" min="0"></div>
@@ -307,35 +427,40 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="row">
  <div><label>Abrigo lacrado</label><select id="hAbrigo"><option>Sim</option><option>Não</option></select></div>
  </div>
- </div>
+ </div></div>
 
- <label>Observações</label><textarea id="fObs" placeholder="Anote não conformidades e detalhes"></textarea>
-
- <div class="row">
- <div><label>Foto 01</label><input id="fFoto1" type="file" accept="image/*" capture="environment"></div>
- <div><label>Foto 02</label><input id="fFoto2" type="file" accept="image/*" capture="environment"></div>
+ <div class="card">
+ <label style="margin-top:0">Fotos</label>
+ <div class="fotos2">
+ <label class="fotoTile" id="tileF1" for="fFoto1"><img class="fotoPrev" alt=""><svg class="i" aria-hidden="true" style="width:28px;height:28px"><use href="#i-camera"/></svg><b>Foto 01</b><span class="fs">Tirar foto · obrigatória</span></label>
+ <label class="fotoTile" id="tileF2" for="fFoto2"><img class="fotoPrev" alt=""><svg class="i" aria-hidden="true" style="width:28px;height:28px"><use href="#i-camera"/></svg><b>Foto 02</b><span class="fs" id="f2Sub">Opcional</span></label>
  </div>
- <div class="auto" id="confBox" style="border-left-color:var(--ok)"></div>
- <button class="btn" id="btnSalvar" onclick="salvar()">Salvar inspeção</button>
+ <input id="fFoto1" class="sr" type="file" accept="image/*" capture="environment" aria-label="Foto 01">
+ <input id="fFoto2" class="sr" type="file" accept="image/*" capture="environment" aria-label="Foto 02">
+ <label for="fObs">Observações</label><textarea id="fObs" placeholder="Anote não conformidades e detalhes"></textarea>
  </div>
+ <div class="resultado" id="confBox" role="status"></div>
+ <button class="btn" id="btnSalvar" onclick="salvar()" style="min-height:54px;font-size:18px">Salvar inspeção</button>
 </section>
 
 <!-- ================= REGISTROS ================= -->
 <section id="tLista" class="hidden" role="tabpanel" aria-label="Registros de inspeção">
+ <input id="flBusca" placeholder="Buscar nº, patrimônio, local ou relatório…" oninput="resetLista()" aria-label="Buscar nos registros" style="margin-bottom:8px">
+ <details class="filtrosDobra" id="fdLista"><summary><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg>Filtros<span class="fQtd"></span></summary>
  <div class="filters">
  <select id="flMes" onchange="resetLista()" aria-label="Filtrar por mês"><option value="">Mês: todos</option></select>
  <select id="flTipo" onchange="resetLista()" aria-label="Filtrar por tipo"><option value="">Tipo: todos</option><option value="ext">Extintores</option><option value="hid">Hidrantes</option></select>
  <select id="flConf" onchange="resetLista()" aria-label="Filtrar por conformidade"><option value="">Conformidade: todas</option><option>C</option><option>NC</option></select>
  <select id="flInsp" onchange="resetLista()" aria-label="Filtrar por inspetor"><option value="">Inspetor: todos</option></select>
  <select id="flOrd" onchange="resetLista()" aria-label="Ordem da lista"><option value="loc">Ordem: local (menor → maior)</option><option value="rec">Ordem: mais recentes primeiro</option></select>
- <input id="flBusca" placeholder="Buscar nº, patrimônio, local ou relatório…" oninput="resetLista()" aria-label="Buscar nos registros">
- </div>
+ </div></details>
  <div id="listaResumo" class="hint" style="color:var(--cinza);text-align:left;margin:-4px 0 10px"></div>
  <div id="lista"></div>
 </section>
 
 <!-- ================= VENCIMENTOS ================= -->
 <section id="tVenc" class="hidden">
+ <details class="filtrosDobra" id="fdVenc"><summary><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg>Filtros<span class="fQtd"></span></summary>
  <div class="filters">
  <select id="vMes" onchange="renderVenc()"><option value="">Mês: todos</option></select>
  <select id="vAg" onchange="renderVenc()"><option value="">Agente: todos</option></select>
@@ -355,23 +480,24 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <option value="180">Até 180 dias</option>
  <option value="9999">Todos os prazos</option>
  </select>
- </div>
- <button class="btn sec" onclick="zapVenc()">📤 Enviar vencimentos por WhatsApp</button>
- <div class="card" id="vencExt"></div>
- <div class="card" id="vencHid"></div>
+ </div></details>
+ <button class="btn sec" onclick="zapVenc()"><svg class="i" aria-hidden="true"><use href="#i-share"/></svg>Enviar vencimentos por WhatsApp</button>
+ <div id="vencExt"></div>
+ <div id="vencHid"></div>
 </section>
 
 <!-- ================= CONDENADOS ================= -->
 <section id="tCond" class="hidden" role="tabpanel" aria-label="Cilindros condenados">
+ <input id="cdBusca" placeholder="Buscar nº do cilindro, relatório ou local…" oninput="renderCond()" aria-label="Buscar condenados" style="margin-bottom:8px">
+ <details class="filtrosDobra" id="fdCond"><summary><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg>Filtros<span class="fQtd"></span></summary>
  <div class="filters">
  <select id="cdAno" onchange="renderCond()" aria-label="Filtrar por ano"><option value="">Ano: todos</option></select>
  <select id="cdMotivo" onchange="renderCond()" aria-label="Filtrar por motivo"><option value="">Motivo: todos</option></select>
  <select id="cdAg" onchange="renderCond()" aria-label="Filtrar por agente"><option value="">Agente: todos</option></select>
- </div>
- <input id="cdBusca" placeholder="Buscar nº do cilindro, relatório ou local…" oninput="renderCond()" aria-label="Buscar condenados" style="margin-bottom:12px">
+ </div></details>
  <div class="btngrid">
- <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
- <button class="btn sec" onclick="exportCondenados()">⬇️ Exportar condenados (Excel)</button>
+ <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg>Condenar cilindro</button>
+ <button class="btn sec" onclick="exportCondenados()"><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Exportar condenados (Excel)</button>
  </div>
  <div id="cdResumo" class="hint" style="color:var(--cinza);text-align:left;margin:10px 0 4px"></div>
  <div id="cdLista"></div>
@@ -382,8 +508,8 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="subtabs" role="tablist" aria-label="Seções do painel">
  <button class="on" data-p="pResumo" onclick="subtab(this)" role="tab" aria-selected="true">Resumo</button>
  <button data-p="pRel" onclick="subtab(this)" role="tab" aria-selected="false">Relatórios</button>
- <button data-p="pEquip" onclick="subtab(this)" role="tab" aria-selected="false">🧯 Equipamentos</button>
- <button data-p="pAdm" onclick="subtab(this)" role="tab" aria-selected="false">⚙️ Cadastro</button>
+ <button data-p="pEquip" onclick="subtab(this)" role="tab" aria-selected="false">Equipamentos</button>
+ <button data-p="pAdm" onclick="subtab(this)" role="tab" aria-selected="false">Cadastro</button>
  </div>
 
  <!-- ---------- Resumo ---------- -->
@@ -391,25 +517,27 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="filters">
  <select id="pMes" onchange="mudaMesPainel()" aria-label="Mês do painel"></select>
  </div>
- <div class="kpis">
- <div class="kpi"><b id="kInsp">0</b><span>Inspecionados</span></div>
- <div class="kpi"><b id="kPend">0</b><span>Pendentes</span></div>
- <div class="kpi"><b id="kNC">0</b><span>Não conformes</span></div>
- <div class="kpi"><b id="kDiv">0</b><span>Divergências</span></div>
- <div class="kpi" style="border-top-color:#7c3aed"><b id="kManut">0</b><span>Em manutenção</span></div>
- </div>
- <div class="card hidden" id="posBox"></div>
- <div class="card hidden" id="manutBox"></div>
- <div class="card hidden" id="engexBox"></div>
- <div class="card hidden" id="resBox"></div>
- <div class="card hidden" id="dupBox"></div>
  <div class="card" id="pendBox"></div>
+ <div class="kpis">
+ <div class="kpi hidden"><b id="kInsp">0</b><span>Inspecionados</span></div>
+ <div class="kpi hidden"><b id="kPend">0</b><span>Pendentes</span></div>
+ <div class="kpi"><b id="kNC" style="color:var(--nc)">0</b><span>Não conformes</span></div>
+ <div class="kpi"><b id="kDiv">0</b><span>Divergências de agente/carga</span></div>
+ <div class="kpi"><b id="kManut">0</b><span>Em recarga na Engex</span></div>
+ <div class="kpi"><b id="kVenc30" style="color:var(--warn)">0</b><span>Vencem em 30 dias</span></div>
+ </div>
+ <div class="rotAtencao">Precisa de atenção</div>
+ <details class="dobra hidden" id="posBox"></details>
+ <details class="dobra hidden" id="dupBox"></details>
+ <details class="dobra hidden" id="resBox"></details>
+ <details class="dobra hidden" id="manutBox"></details>
+ <details class="dobra hidden" id="engexBox"></details>
  <details class="dobra">
- <summary>📈 Gráficos<small>Conformidade por mês e não conformidades por área</small></summary>
+ <summary><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg>Gráficos<small>Conformidade por mês e não conformidades por área</small></summary>
  <div class="dobraIn"><div id="graf1"></div><div id="graf2" style="margin-top:18px"></div></div>
  </details>
  <details class="dobra">
- <summary>🔁 Últimas substituições<small>Trocas por recarga registradas no sistema</small></summary>
+ <summary><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Últimas substituições<small>Trocas por recarga registradas no sistema</small></summary>
  <div class="dobraIn" id="movBox"></div>
  </details>
  </div>
@@ -420,7 +548,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <select id="rMes" onchange="mudaMesRel()" aria-label="Mês do relatório"></select>
  </div>
  <div class="card">
- <b>⬇️ Exportar relatório Excel</b>
+ <b><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Exportar relatório Excel</b>
  <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Gera o relatório no padrão Engex do mês escolhido acima, com as colunas de padrão (cinza) travadas e as assinaturas dos inspetores no final.</p>
  <div style="margin:10px 0 4px">
  <label for="relFormato" style="font-size:12.5px;color:var(--cinza);display:block;margin-bottom:4px">Formato do arquivo:</label>
@@ -431,17 +559,17 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </select>
  </div>
  <div class="btngrid">
- <button class="btn sec" onclick="exportXLSX('ext')">⬇️ Relatório de Extintores</button>
- <button class="btn sec" onclick="exportXLSX('hid')">⬇️ Relatório de Hidrantes</button>
+ <button class="btn sec" onclick="exportXLSX('ext')"><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Relatório de Extintores</button>
+ <button class="btn sec" onclick="exportXLSX('hid')"><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Relatório de Hidrantes</button>
  </div>
- <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="exportCondenados()">⛔ Relatório de cilindros condenados</button>
+ <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="exportCondenados()"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg>Relatório de cilindros condenados</button>
  </div>
  <div class="card">
- <b>📄 Laudo mensal (PDF)</b>
+ <b><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>Laudo mensal (PDF)</b>
  <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Documento de apresentação do mês escolhido acima: resumo de conformidade, inspeções realizadas, não conformidades com foto, pendências, vencimentos, condenações do mês e assinaturas. Abre a janela de impressão — escolha <b>"Salvar como PDF"</b>.</p>
  <div class="btngrid">
- <button class="btn" onclick="laudoPDF()">📄 Gerar laudo do mês</button>
- <button class="btn sec" onclick="window.print()">🖨️ Imprimir a tela</button>
+ <button class="btn" onclick="laudoPDF()"><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>Gerar laudo do mês</button>
+ <button class="btn sec" onclick="window.print()"><svg class="i" aria-hidden="true"><use href="#i-print"/></svg>Imprimir a tela</button>
  </div>
  </div>
  </div>
@@ -449,12 +577,12 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <!-- ---------- Lista de equipamentos ---------- -->
  <div id="pEquip" class="hidden">
  <div class="card">
- <b>🧯 Lista de equipamentos</b>
+ <b><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg>Lista de equipamentos</b>
  <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Cadastro completo, com a data da última inspeção registrada de cada equipamento. Toque em uma linha para abrir o equipamento.</p>
  <div class="filters">
  <select id="eqTipo" onchange="renderEquip()" aria-label="Tipo de equipamento">
- <option value="ext">🧯 Extintores</option>
- <option value="hid">🚒 Hidrantes</option>
+ <option value="ext">Extintores</option>
+ <option value="hid">Hidrantes</option>
  </select>
  <select id="eqSit" onchange="renderEquip()" aria-label="Situação">
  <option value="">Situação: todas</option>
@@ -472,7 +600,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </select>
  <input id="eqBusca" placeholder="Buscar nº, patrimônio ou local…" oninput="renderEquip()">
  </div>
- <button class="btn sec" onclick="exportEquipXLSX()">⬇️ Exportar lista em Excel</button>
+ <button class="btn sec" onclick="exportEquipXLSX()"><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Exportar lista em Excel</button>
  </div>
  <div class="card" id="eqLista"></div>
  </div>
@@ -480,36 +608,36 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <!-- ---------- Administração ---------- -->
  <div id="pAdm" class="hidden">
  <div class="card" id="adminBox">
- <b>🧯 Cadastro de equipamentos</b>
+ <b><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg>Cadastro de equipamentos</b>
  <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Todo cadastro fica registrado na auditoria com o nome de quem fez.</p>
  <div class="btngrid">
- <button class="btn sec" onclick="novoEquip('ext')">➕ Novo extintor</button>
- <button class="btn sec" onclick="novoEquip('hid')">➕ Novo hidrante</button>
- <button class="btn sec" onclick="novoLocal()">📍 Novo local (posição vazia)</button>
- <button class="btn sec" onclick="etiquetasQR()">🏷️ Etiquetas QR</button>
- <button class="btn sec adminOnly hidden" onclick="editarEquip()">✏️ Editar / remover equip.</button>
- <button class="btn sec adminOnly hidden" onclick="importarLote()">📥 Importar em lote</button>
- <button class="btn sec adminOnly hidden" onclick="corrigirLote()">🛠️ Corrigir em lote</button>
- <button class="btn sec adminOnly hidden" onclick="corrigirInspLote()">🛠️ Corrigir inspeções em lote</button>
- <button class="btn sec adminOnly hidden" onclick="revisarReservas()">🧹 Revisar pool de reserva</button>
- <button class="btn sec adminOnly hidden" onclick="migrarEngexAntigos()">🔄 Migrar reservas Engex antigas p/ manutenção</button>
- <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()">⛔ Condenar cilindro</button>
+ <button class="btn sec" onclick="novoEquip('ext')"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Novo extintor</button>
+ <button class="btn sec" onclick="novoEquip('hid')"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Novo hidrante</button>
+ <button class="btn sec" onclick="novoLocal()"><svg class="i" aria-hidden="true"><use href="#i-pin"/></svg>Novo local (posição vazia)</button>
+ <button class="btn sec" onclick="etiquetasQR()"><svg class="i" aria-hidden="true"><use href="#i-tag"/></svg>Etiquetas QR</button>
+ <button class="btn sec adminOnly hidden" onclick="editarEquip()"><svg class="i" aria-hidden="true"><use href="#i-edit"/></svg>Editar / remover equip.</button>
+ <button class="btn sec adminOnly hidden" onclick="importarLote()"><svg class="i" aria-hidden="true"><use href="#i-up"/></svg>Importar em lote</button>
+ <button class="btn sec adminOnly hidden" onclick="corrigirLote()"><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg>Corrigir em lote</button>
+ <button class="btn sec adminOnly hidden" onclick="corrigirInspLote()"><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg>Corrigir inspeções em lote</button>
+ <button class="btn sec adminOnly hidden" onclick="revisarReservas()"><svg class="i" aria-hidden="true"><use href="#i-list"/></svg>Revisar pool de reserva</button>
+ <button class="btn sec adminOnly hidden" onclick="migrarEngexAntigos()"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Migrar reservas Engex antigas p/ manutenção</button>
+ <button class="btn sec adminOnly hidden" style="border-color:var(--cd);color:var(--cd)" onclick="abrirCondenacao()"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg>Condenar cilindro</button>
  </div>
  </div>
  <div class="card adminOnly hidden">
- <b>👥 Pessoas e acesso</b>
+ <b><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>Pessoas e acesso</b>
  <div class="btngrid">
- <button class="btn sec" onclick="cadastrarInspetor()">👤 Cadastrar usuário</button>
- <button class="btn sec" onclick="gerenciarUsuarios()">👥 Usuários, perfis e admins</button>
- <button class="btn sec" onclick="verAuditoria()">🕵️ Auditoria</button>
- <button class="btn sec" onclick="temposGravacao()">📶 Tempos de gravação</button>
+ <button class="btn sec" onclick="cadastrarInspetor()"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg>Cadastrar usuário</button>
+ <button class="btn sec" onclick="gerenciarUsuarios()"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>Usuários, perfis e admins</button>
+ <button class="btn sec" onclick="verAuditoria()"><svg class="i" aria-hidden="true"><use href="#i-eye"/></svg>Auditoria</button>
+ <button class="btn sec" onclick="temposGravacao()"><svg class="i" aria-hidden="true"><use href="#i-signal"/></svg>Tempos de gravação</button>
  </div>
  </div>
  <details class="dobra adminOnly hidden">
- <summary>🛠️ Manutenção do sistema<small>Backup e reinício — ações delicadas</small></summary>
+ <summary><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg>Manutenção do sistema<small>Backup e reinício — ações delicadas</small></summary>
  <div class="dobraIn">
- <button class="btn sec" onclick="backupJSON()">💾 Backup (JSON)</button>
- <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="zerarSistema()">🧹 Zerar dados (recomeçar)</button>
+ <button class="btn sec" onclick="backupJSON()"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg>Backup (JSON)</button>
+ <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="zerarSistema()"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>Zerar dados (recomeçar)</button>
  </div>
  </details>
  </div>
@@ -1097,9 +1225,9 @@ function mostraPadrao(){
         /* Reserva não tem "padrão" de verdade — os cilindros trocam de posição com o
            tempo, então mostrar isso como se fosse fixo confunde. Aqui mostra só o
            agente/carga do cilindro que está nesta vaga agora. */
-        ?`<span class="lock" style="background:var(--cinza2)">🔄 pool de reserva</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
+        ?`<span class="lock">pool de reserva</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
       Agente do cilindro: <b>${esc(String(EQ.tipo||"—"))}</b> · Carga do cilindro: <b>${esc(String(EQ.carga??"—"))}</b><br>`
-        :`<span class="lock">🔒 padrão travado</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
+        :`<span class="lock">padrão travado</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
       Padrão de agente: <b>${esc(String(EQ.agp||"—"))}</b> · Padrão de carga: <b>${esc(String(EQ.cgp||"—"))}</b><br>`}
       Fabricação: <b>${fmtBR(EQ.fab)}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
@@ -1123,7 +1251,7 @@ function mostraPadrao(){
       ${emManutencao(EQ)&&!cd?`<br><span class="badge b-manut" style="margin-top:8px">🔧 EM MANUTENÇÃO desde ${fmtBR(EQ.manutDesde)}</span>
         <br><small style="color:var(--cinza)">Saiu de ${EQ.manutDe?`Ext ${esc(String(EQ.manutDe))}`:"—"}${EQ.manutLoc?` — ${esc(String(EQ.manutLoc))}`:""} para recarga. Use "Ações do equipamento" → "Registrar retorno da recarga" quando ele voltar.</small>`:""}
       ${cxCond}${acoes}`
-    :`<span class="lock">🔒 padrão travado</span>Patrimônio: <b>${esc(String(EQ.pat))}</b> · Tipo: <b>${esc(String(EQ.tipo??"—"))}</b> · Capacidade: <b>${esc(String(EQ.cap??"—"))}</b><br>
+    :`<span class="lock">padrão travado</span>Patrimônio: <b>${esc(String(EQ.pat))}</b> · Tipo: <b>${esc(String(EQ.tipo??"—"))}</b> · Capacidade: <b>${esc(String(EQ.cap??"—"))}</b><br>
       Fabricação: <b>${esc(String(EQ.fab??"—"))}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
       Próx. Manutenção: <b>${fmtBR(EQ.man)}</b> · Próx. T. Hidrostático: <b>${fmtBR(EQ.th)}</b>
@@ -1274,9 +1402,51 @@ window.acoesEquip=()=>{
     <div style="margin-top:6px">${L.join("")}</div>
     <button class="btn sec" onclick="fechaDlg()">Fechar</button>`;
   $("dlg").showModal();};
+/* ---------- Botoes de toque no lugar dos menus ----------
+   O <select> continua existindo (escondido) e e a fonte da verdade: salvar(), o
+   ajuste do CO2 e a limpeza depois de salvar seguem lendo e escrevendo nele. Os
+   botoes so espelham: um toque escreve no select e dispara "change"; qualquer
+   escrita no select (inclusive por codigo, como .value="C") redesenha os botoes. */
+function espelhaValor(el,cb){
+  const d=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),"value");
+  Object.defineProperty(el,"value",{configurable:true,
+    get(){return d.get.call(this);},set(v){d.set.call(this,v);cb();}});
+  el.addEventListener("change",cb);}
+function viraBotoes(sel,{classe="opcoes",rotulo=""}={}){
+  if(!sel||sel.dataset.botoes)return;sel.dataset.botoes="1";
+  const g=document.createElement("div");g.className=classe;g.setAttribute("role","radiogroup");
+  g.setAttribute("aria-label",rotulo||sel.getAttribute("aria-label")||"");
+  [...sel.options].filter(o=>o.value!=="").forEach(o=>{
+    const b=document.createElement("button");b.type="button";b.setAttribute("role","radio");
+    b.textContent=o.text;b.dataset.v=o.value;b.className="v"+o.value.replace(/\s+/g,"");
+    b.onclick=()=>{if(sel.disabled)return;sel.value=o.value;sel.dispatchEvent(new Event("change",{bubbles:true}));};
+    g.appendChild(b);});
+  const pinta=()=>{g.querySelectorAll("button").forEach(b=>{b.setAttribute("aria-checked",b.dataset.v===sel.value?"true":"false");b.disabled=sel.disabled;});};
+  espelhaValor(sel,pinta);
+  new MutationObserver(pinta).observe(sel,{attributes:true,attributeFilter:["disabled"]});
+  sel.classList.add("sr");sel.tabIndex=-1;sel.setAttribute("aria-hidden","true");
+  sel.insertAdjacentElement("afterend",g);pinta();}
 function buildChkExt(){
   $("chkExt").innerHTML=CHK_EXT.map((c,i)=>`<div class="chk"><span>${c}</span>
-    <select id="ck${i}" onchange="confAuto()"><option>C</option><option>NC</option><option>NA</option></select></div>`).join("");}
+    <select id="ck${i}" onchange="confAuto()"><option>C</option><option>NC</option><option>NA</option></select></div>`).join("");
+  CHK_EXT.forEach((c,i)=>viraBotoes($("ck"+i),{rotulo:c}));}
+/* agente e carga encontrados no local: chips (o campo de carga continua livre) */
+function montaEncontrado(){
+  viraBotoes($("fTipoLocal"),{classe:"chips",rotulo:"Agente encontrado no local"});
+  $("cgLocal").innerHTML=`<div class="chips" style="margin-top:8px">${CARGAS_PADRAO.map(c=>`<button type="button" data-cg="${c}">${c}</button>`).join("")}</div>`;
+  const inp=$("fCargaLocal");
+  const pinta=()=>$("cgLocal").querySelectorAll("button").forEach(b=>b.classList.toggle("on",!!inp.value&&normCg(b.dataset.cg)===normCg(inp.value)));
+  $("cgLocal").querySelectorAll("button").forEach(b=>b.onclick=()=>{inp.value=b.dataset.cg;});
+  espelhaValor(inp,pinta);inp.addEventListener("input",pinta);pinta();}
+/* fotos: quadro com miniatura; a Foto 02 fica obrigatoria (vermelha) quando ha NC */
+function montaFotos(){
+  [["fFoto1","tileF1"],["fFoto2","tileF2"]].forEach(([id,t])=>{
+    const inp=$(id),tile=$(t),img=tile.querySelector(".fotoPrev");
+    const pinta=()=>{const f=inp.files&&inp.files[0];
+      if(img.dataset.url){URL.revokeObjectURL(img.dataset.url);delete img.dataset.url;}
+      if(f){img.dataset.url=URL.createObjectURL(f);img.src=img.dataset.url;}else img.removeAttribute("src");
+      tile.classList.toggle("tem",!!f);};
+    espelhaValor(inp,pinta);});}
 /* Itens que NÃO derrubam a conformidade geral (a NC fica registrada no item) */
 const IGNORA_CONF=["Acesso","Sinalização","Sinalização de piso"];
 const calcConfExt=chk=>Object.entries(chk||{}).some(([k,v])=>v==="NC"&&!IGNORA_CONF.includes(k))?"NC":"C";
@@ -1284,13 +1454,21 @@ const calcConfExt=chk=>Object.entries(chk||{}).some(([k,v])=>v==="NC"&&!IGNORA_C
    como NC no item, sem derrubar a conformidade geral do ponto — só o Abrigo
    deslacrado derruba. Decisão do Eder: o abrigo aberto é o único item "duro". */
 const IGNORA_CONF_HID=["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"];
+const ROT_HID={hStorz:"Adaptador Storz",hEsg:"Esguichos",hMang:"Mangueiras",hReg:"Registro",hSinSolo:"Sinalização de solo",hSinAerea:"Sinalização aérea"};
 window.confAuto=()=>{
-  let nc=false,ncLeve=false;
-  if(TIPO==="ext")CHK_EXT.forEach((c,i)=>{const el=$("ck"+i);if(el&&el.value==="NC"){if(IGNORA_CONF.includes(c))ncLeve=true;else nc=true;}});
-  else{["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{if($(id).value==="NC"){if(IGNORA_CONF_HID.includes(id))ncLeve=true;else nc=true;}});
-    if($("hAbrigo").value==="Não")nc=true;}
-  $("confBox").style.borderLeftColor=nc?"var(--nc)":"var(--ok)";
-  $("confBox").innerHTML=`Conformidade: <b style="color:${nc?"var(--nc)":"var(--ok)"}">${nc?"NC — Não conforme":"C — Conforme"}</b> (automática pelo checklist)${!nc&&ncLeve?` · NC de acesso/sinalização fica registrada no item, sem alterar o geral`:""}`;
+  let nc=false,ncLeve=false;const itens=[];
+  if(TIPO==="ext")CHK_EXT.forEach((c,i)=>{const el=$("ck"+i);if(el&&el.value==="NC"){itens.push(c);if(IGNORA_CONF.includes(c))ncLeve=true;else nc=true;}});
+  else{["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea"].forEach(id=>{if($(id).value==="NC"){itens.push(ROT_HID[id]);if(IGNORA_CONF_HID.includes(id))ncLeve=true;else nc=true;}});
+    if($("hAbrigo").value==="Não"){itens.push("Abrigo lacrado");nc=true;}}
+  /* qualquer NC (inclusive acesso/sinalizacao) exige Foto 02 e observacao — mesma regra de salvar() */
+  const exige=itens.length>0;
+  const cb=$("confBox");cb.classList.toggle("nc",nc);
+  cb.innerHTML=`<span class="rt">Resultado</span><span class="rv">${nc?"Não conforme":"Conforme"}</span>`
+    +`<span class="rd">${exige?`Item NC: ${esc(itens.join(", "))}.${!nc?" Acesso/sinalização fica registrado no item, sem alterar o geral.":""} Foto 02 e observação são obrigatórias.`
+      :"Todos os itens conformes. A conformidade é calculada pelo checklist."}</span>`;
+  const t2=$("tileF2");if(t2){t2.classList.toggle("obrig",exige);$("f2Sub").textContent=exige?"Obrigatória — item NC":"Opcional";}
+  const r=$("chkResumo");if(r)r.textContent=TIPO!=="ext"?"":(exige?`${itens.length} não conforme${itens.length>1?"s":""}`:"Tudo conforme");
+  if($("fObs"))$("fObs").placeholder=exige?"Descreva a não conformidade (obrigatório)":"Opcional — anote detalhes";
   return nc?"NC":"C";};
 /* CO2 não tem manômetro: trava "Indicador de Pressão" em NA */
 window.ajustaCO2=()=>{
@@ -1300,7 +1478,16 @@ window.ajustaCO2=()=>{
   if(co2){el.value="NA";el.disabled=true;}else el.disabled=false;
   confAuto();};
 ["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea","hAbrigo"].forEach(id=>{document.addEventListener("change",e=>{if(e.target.id===id)confAuto();});});
-buildChkExt();confAuto();
+/* filtros: no celular ficam atras do botao "Filtros" (antes ocupavam meia tela);
+   no computador comecam abertos. O numero no botao diz quantos estao ativos. */
+document.querySelectorAll(".filtrosDobra").forEach(d=>{
+  if(matchMedia("(min-width:901px)").matches)d.open=true;
+  const conta=()=>{const n=[...d.querySelectorAll("select")].filter(x=>x.value!==""&&!(x.id==="flOrd"&&x.value==="loc")&&!(x.id==="vPrazo"&&x.value==="90")).length;
+    d.querySelector(".fQtd").textContent=n||"";};
+  d.addEventListener("change",conta);conta();});
+buildChkExt();montaEncontrado();montaFotos();
+["hStorz","hEsg","hMang","hReg","hSinSolo","hSinAerea","hAbrigo"].forEach(id=>viraBotoes($(id),{rotulo:ROT_HID[id]||"Abrigo lacrado"}));
+confAuto();
 $("fData").value=new Date().toLocaleDateString("pt-BR");
 
 /* ================= Molde único dos diálogos =================
@@ -1454,7 +1641,19 @@ async function prepNotif(qtd){
   }catch(e){}}
 
 function pintaUInfo(){
-  $("uInfo").innerHTML=`Inspetor: ${esc(NOME||auth.currentUser?.email||"")} <span style="text-decoration:underline;cursor:pointer;opacity:.8" onclick="mudarNome()">alterar</span> · <span style="text-decoration:underline;cursor:pointer;opacity:.8" onclick="assinatura()">✍️ assinatura${ASSIN?" ✓":""}</span>`;}
+  /* o nome, a assinatura e o "Sair" moram no menu do avatar (antes eram links soltos no topo) */
+  const em=auth.currentUser?.email||"",nm=NOME||em;
+  const ini=String(NOME||em).trim().split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join("")||"·";
+  $("uBtn").textContent=ini;
+  $("uBtn").setAttribute("aria-label","Menu do usuário: "+nm);
+  $("uInfo").innerHTML=`<b>${esc(nm)}</b>${NOME?`<small>${esc(em)}</small>`:""}`;
+  $("uAssOk").textContent=ASSIN?"✓ salva":"";}
+window.menuUsuario=ev=>{ev&&ev.stopPropagation();
+  const m=$("uMenu"),abre=m.classList.contains("hidden");
+  m.classList.toggle("hidden",!abre);$("uBtn").setAttribute("aria-expanded",abre?"true":"false");};
+window.fechaMenuUsuario=()=>{$("uMenu").classList.add("hidden");$("uBtn").setAttribute("aria-expanded","false");};
+document.addEventListener("click",e=>{if(!e.target.closest(".umenu"))fechaMenuUsuario();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")fechaMenuUsuario();});
 let SEM_CADASTRO=false;
 async function carregarNome(u){
   SEM_CADASTRO=false;
@@ -2325,6 +2524,10 @@ function atualizaFiltroInspetor(fmes){
     +nomes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
   if(sel.innerHTML!==html){sel.innerHTML=html;sel.value=nomes.includes(escolhido)?escolhido:"";}
   return sel.value;}
+/* bloco recolhido do painel: titulo + contador + explicacao; a lista so aparece ao tocar.
+   Antes cada lista vinha aberta e o painel passava de 17 telas de rolagem no celular. */
+const dobraBox=(el,titulo,n,tom,desc,corpo)=>{el.innerHTML=
+  `<summary><span class="sl"><span class="dt">${titulo}</span><span class="cnt ${tom}">${n}</span></span><small>${desc}</small></summary><div class="dobraIn">${corpo}</div>`;};
 window.render=()=>{
   const ft=$("flTipo").value,fc=$("flConf").value,fb2=$("flBusca").value.toLowerCase();
   const fmes=$("flMes")?$("flMes").value:"";
@@ -2429,12 +2632,11 @@ window.render=()=>{
     rb.classList.toggle("hidden",!resPend.length);
     if(resPend.length){
       const todas=resPend.length===resRota.length;
-      rb.innerHTML=`<b>🧯 Pool de reserva sem inspeção neste mês (${resPend.length} de ${resRota.length})</b>`
-        +(todas?`<p style="font-size:13px;color:var(--nc);font-weight:700;margin:6px 0 4px">Nenhum cilindro do pool foi inspecionado neste mês.</p>`:"")
-        +`<p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">Os cilindros de reserva entram na rota como qualquer outro — são eles que assumem o lugar quando um extintor vai para recarga. Quem não é inspecionado aqui vira um ponto cego.</p>`
-        +resPend.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 <b>Nº ${esc(String(e.num??"—"))}</b>`
+      dobraBox(rb,"Reserva sem inspeção no mês",`${resPend.length} de ${resRota.length}`,"aviso",
+        todas?"Nenhum cilindro do pool foi inspecionado neste mês.":"Os cilindros de reserva também entram na rota: são eles que assumem o lugar quando um extintor vai para recarga.",
+        resPend.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 <b>Nº ${esc(String(e.num??"—"))}</b>`
           +`<br><small style="color:var(--cinza)">Reserva ${esc(String(e.seq))}${e.tipo||e.agp?` · ${esc(String(e.tipo||e.agp))}`:""}${e.carga??e.cgp?` ${esc(String(e.carga??e.cgp))}`:""}</small>`
-          +`</span><span class="badge b-cond">sem inspeção</span></div>`).join("");}}
+          +`</span><span class="badge b-cond">sem inspeção</span></div>`).join(""));}}
 
   /* posições que ficaram sem cilindro por causa de uma condenação */
   const pb=$("posBox");
@@ -2443,24 +2645,22 @@ window.render=()=>{
       .filter(c=>{const e=CAD.ext.find(x=>String(x.seq)===String(c.seqOrigem));
         return e&&(!e.num||chaveCil(e.num)===chaveCil(c.num));});
     pb.classList.toggle("hidden",!vagas.length);
-    if(vagas.length)pb.innerHTML=`<b>⚠️ Posições aguardando substituto</b>
-      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 4px">O cilindro foi condenado e o
-      local segue sem equipamento. Some daqui quando você fizer a substituição por reserva.</p>`
-      +vagas.map(c=>`<div class="venc"><span>🧯 Ext ${esc(String(c.seqOrigem))} — ${esc(String(c.locOrigem||"").replace(/^Ext \d+ — /,""))}
+    if(vagas.length)dobraBox(pb,"Posições sem cilindro (condenado)",vagas.length,"alerta",
+      "O cilindro foi condenado e o local segue sem equipamento. Some daqui quando você fizer a substituição por reserva.",
+      vagas.map(c=>`<div class="venc"><span>🧯 Ext ${esc(String(c.seqOrigem))} — ${esc(String(c.locOrigem||"").replace(/^Ext \d+ — /,""))}
         <br><small style="color:var(--cinza)">Nº ${esc(String(c.num))} condenado em ${fmtBR(c.data)} · ${esc(c.relatorio||"—")}</small></span>
-        <span class="badge b-cond">sem cilindro</span></div>`).join("");}
+        <span class="badge b-cond">sem cilindro</span></div>`).join(""));}
   /* cilindros que saíram do local para recarga e ainda não voltaram */
   const emManut=CAD.ext.filter(e=>emManutencao(e));
   if($("kManut"))$("kManut").textContent=emManut.length;
   const mb=$("manutBox");
   if(mb){
     mb.classList.toggle("hidden",!emManut.length);
-    if(emManut.length)mb.innerHTML=`<b>🔧 Em manutenção / recarga (${emManut.length})</b>
-      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 4px">Saíram do local para recarga e ainda não retornaram.
-      Ficam fora da rota do mês e não podem ser escolhidos como reserva. Some daqui ao registrar o retorno.</p>`
-      +emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
+    if(emManut.length)dobraBox(mb,"Em recarga na Engex",emManut.length,"neutro",
+      "Saíram do local para recarga e ainda não voltaram. Ficam fora da rota e não podem ser escolhidos como reserva.",
+      emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
         <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · desde ${fmtBR(e.manutDesde)}</small></span>
-        <span class="badge b-manut">manutenção</span></div>`).join("");}
+        <span class="badge b-manut">manutenção</span></div>`).join(""));}
   /* Mesmo numero de cilindro em duas posicoes: a "ultima inspecao" e buscada pelo
      numero, entao a inspecao de uma posicao conta pela outra — e a posicao que
      ninguem inspecionou nunca aparece como pendente. E falha de cobertura. */
@@ -2478,32 +2678,37 @@ window.render=()=>{
     const ultNaPosicao=seq=>{let m="";(ITENS||[]).forEach(i=>{
       if(i.tipo!=="ext"||String(i.eqSeq)!==String(seq))return;
       const d=String(i.data||"");if(d>m)m=d;});return m;};
-    if(dups.length)db_.innerHTML=`<b>⚠️ Cilindros em mais de uma posição (${dups.length})</b>
-      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 8px">O mesmo número consta em duas posições. Como a última inspeção é buscada pelo número, a inspeção de uma conta pela outra — e a posição que ninguém inspecionou não aparece como pendente. Confira no campo qual está certa e corrija o cadastro.</p>`
-      +dups.map(([num,lista])=>`<div class="venc"><span>🧯 <b>Nº ${esc(num)}</b><br>`
+    if(dups.length)dobraBox(db_,"Cilindro em mais de uma posição",dups.length,"aviso",
+      "A inspeção de uma posição conta pela outra, e a que ninguém visitou não aparece como pendente. Confira no campo qual está certa.",
+      dups.map(([num,lista])=>`<div class="venc"><span>🧯 <b>Nº ${esc(num)}</b><br>`
         +lista.map(e=>{const u=ultNaPosicao(e.seq);
         return `<small style="color:var(--cinza)">${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc?` · ${esc(String(e.loc))}`:""}`
           +`<br>${u?`Última inspeção nesta posição: <b>${fmtBR(u)}</b>`
                  :`<b style="color:var(--nc)">Nunca inspecionada nesta posição — confira no local</b>`}</small>`;}).join("<br>")
-        +`</span><span class="badge b-cond">repetido</span></div>`).join("");}
+        +`</span><span class="badge b-cond">repetido</span></div>`).join(""));}
   /* pontos que hoje estão com um cilindro emprestado da Engex, no lugar do original em manutenção */
   const eb=$("engexBox");
   if(eb){
     const comEngex=CAD.ext.filter(e=>e.engex&&!isReserva(e)&&!ehCondenado(e));
     eb.classList.toggle("hidden",!comEngex.length);
-    if(comEngex.length)eb.innerHTML=`<b>🏢 Pontos com reserva Engex (${comEngex.length})</b>
-      <p style="font-size:12.5px;color:var(--cinza);margin:6px 0 4px">Cilindro emprestado pela Engex, temporariamente no lugar do original que está em manutenção.</p>`
-      +comEngex.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Ext ${esc(String(e.seq))} — ${esc(String(e.loc||"").replace(/^Ext \d+ — /,""))}
+    if(comEngex.length)dobraBox(eb,"Pontos com reserva Engex",comEngex.length,"neutro",
+      "Cilindro emprestado pela Engex no lugar do original que está em manutenção.",
+      comEngex.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Ext ${esc(String(e.seq))} — ${esc(String(e.loc||"").replace(/^Ext \d+ — /,""))}
         <br><small style="color:var(--cinza)">${e.num?`Nº ${esc(String(e.num))} · `:"Número do cilindro ainda não informado · "}reserva desde ${fmtBR(e.engexDesde)}</small></span>
-        <span class="badge b-engex">Engex</span></div>`).join("");
+        <span class="badge b-engex">Engex</span></div>`).join(""));
   }
-  $("pendBox").innerHTML=`<b>🗺️ Rota de inspeção — ${pm.split("-").reverse().join("/")}</b>
-    <div style="background:#eee;border-radius:8px;height:14px;margin:10px 0;overflow:hidden"><div style="background:linear-gradient(90deg,#16a34a,#65a30d);height:100%;width:${pct}%"></div></div>
-    <div style="font-size:12px;color:var(--cinza);margin-bottom:10px">${inspRota}/${tot} inspecionados (${pct}%) · ${pendTotal} pendentes — toque na área e no item para inspecionar</div>
-    <b style="font-size:13.5px;color:var(--vinho)">🧯 Extintores — ${pendExt.length} pendentes</b>
+  $("pendBox").innerHTML=`<div class="cabSec"><label style="margin:0">Rota do mês</label><span style="font-size:14px;color:var(--cinza)">${mesExtenso(pm)}</span></div>
+    <div class="rotaNum"><b>${inspRota}</b><span>de ${tot} pontos inspecionados</span></div>
+    <div class="barra" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Cobertura da rota"><div style="width:${pct}%"></div></div>
+    <div style="font-size:14px;color:var(--texto2);margin-bottom:6px">${pct}% da rota${pendTotal?` · faltam <b>${pendTotal}</b> pontos`:" · rota completa"}</div>
+    ${pendTotal?`<details class="pendDet"><summary>Ver pendências por área</summary>
+    <b style="font-size:14px;color:var(--vinho);display:block;margin-top:10px">Extintores — ${pendExt.length} pendentes</b>
     ${blocoRota(pendExt,"extintores")}
-    <b style="font-size:13.5px;color:#1d4ed8;display:block;margin-top:16px">🚒 Hidrantes — ${pendHid.length} pendentes</b>
-    ${blocoRota(pendHid,"hidrantes")}`;
+    <b style="font-size:14px;color:var(--hid);display:block;margin-top:14px">Hidrantes — ${pendHid.length} pendentes</b>
+    ${blocoRota(pendHid,"hidrantes")}</details>`:""}`;
+  /* quantos vencem em 30 dias (ou ja venceram), fora os condenados */
+  if($("kVenc30"))$("kVenc30").textContent=CAD.ext.filter(e=>!ehCondenado(e)&&[e.man2,e.man3].some(d=>{const x=diasAte(d);return x!==null&&x<=30;})).length
+    +CAD.hid.filter(h=>[h.man,h.th].some(d=>{const x=diasAte(d);return x!==null&&x<=30;})).length;
   /* mantém a lista de equipamentos em sincronia quando o cadastro muda em segundo plano */
   if($("pEquip")&&!$("pEquip").classList.contains("hidden")){try{renderEquip();}catch(e){}}
   desenhaGraficos();};
@@ -2595,12 +2800,16 @@ window.renderVenc=()=>{
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
   const vazioMsg=`<div class="vazio"><span class="ic">✅</span><b>Nada a vencer com esses filtros</b><p>Tente ampliar o prazo para 180 dias ou "todos os prazos", ou limpar o filtro de mês.</p></div>`;
+  /* grupos recolhidos com contador (a lista aberta passava de 13 telas no celular);
+     cada grupo lembra se estava aberto quando a tela e redesenhada */
+  const grupo=(id,titulo,arr,desc)=>{const nv=arr.filter(l=>l.d<0).length,ab=!!VENC_ABERTO[id];
+    return `<details class="dobra" data-g="${id}"${ab?" open":""} ontoggle="VENC_ABERTO[this.dataset.g]=this.open">`
+      +`<summary><span class="sl"><span class="dt">${titulo}</span><span class="cnt${nv?" alerta":""}">${arr.length}</span></span>`
+      +`<small>${nv?`<b style="color:var(--nc)">${nv} vencido${nv>1?"s":""}</b> · `:""}${desc}</small></summary>`
+      +`<div class="dobraIn">${arr.length?arr.map(l=>l.h).join(""):vazioMsg}</div></details>`;};
   let htmlExt="";
-  if(fG!=="res")htmlExt+=`<b>🧯 Extintores instalados</b> (${inst.length}) <small style="color:var(--cinza)">· ${rotuloPrazo}</small><br><br>`+
-    (inst.length?inst.map(l=>l.h).join(""):vazioMsg);
-  if(fG!=="inst")htmlExt+=`${fG!=="res"?"<br>":""}<b>📦 Pool de reserva</b> (${rsv.length})
-     <p style="font-size:12px;color:var(--cinza);margin:4px 0 8px">Cilindros sem local definido. Não devem ser instalados antes da manutenção.</p>`+
-    (rsv.length?rsv.map(l=>l.h).join(""):vazioMsg);
+  if(fG!=="res")htmlExt+=grupo("inst","Extintores instalados",inst,rotuloPrazo);
+  if(fG!=="inst")htmlExt+=grupo("res","Pool de reserva",rsv,`${rotuloPrazo} · não instalar antes da manutenção`);
   $("vencExt").innerHTML=htmlExt;
   /* hidrantes não têm agente extintor: somem quando esse filtro está ativo */
   const lh=[];
@@ -2609,10 +2818,10 @@ window.renderVenc=()=>{
       const dd=diasAte(dt);if(!passa(dd,dt))return;
       lh.push({d:dd,h:`<div class="venc"><span>🚒 ${esc(String(h.pat))} · ${rot} ${fmtBR(dt)}<br><small style="color:var(--cinza)">${esc(h.loc||"")}</small></span>${badgeVenc(dd)}</div>`});});});
   lh.sort((a,b)=>a.d-b.d);
-  $("vencHid").innerHTML=fA?`<b>🚒 Hidrantes</b><p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Ocultos: o filtro de agente vale só para extintores. Volte o agente para "todos" para vê-los.</p>`
-    :fG==="res"?`<b>🚒 Hidrantes</b><p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Ocultos pelo filtro "Só reserva".</p>`
-    :`<b>🚒 Hidrantes</b> (${lh.length}) <small style="color:var(--cinza)">· ${rotuloPrazo}</small><br><br>`+
-      (lh.length?lh.map(l=>l.h).join(""):vazioMsg);};
+  $("vencHid").innerHTML=fA?`<p class="card" style="font-size:14px;color:var(--cinza)"><b>Hidrantes</b> ocultos: o filtro de agente vale só para extintores.</p>`
+    :fG==="res"?`<p class="card" style="font-size:14px;color:var(--cinza)"><b>Hidrantes</b> ocultos pelo filtro "Só reserva".</p>`
+    :grupo("hid","Hidrantes",lh,rotuloPrazo);};
+window.VENC_ABERTO={};
 
 /* ================= Aba Condenados ================= */
 function montaFiltrosCond(){
