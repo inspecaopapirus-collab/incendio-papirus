@@ -1088,8 +1088,14 @@ function mostraPadrao(){
       <br><small style="color:var(--cinza)">Fora de operação: não recebe inspeção e não aparece
       nas listas de troca, reserva e vencimentos.</small></div>`:"";
   b.innerHTML=ext
-    ?`<span class="lock">🔒 padrão travado</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
-      Padrão de agente: <b>${esc(String(EQ.agp||"—"))}</b> · Padrão de carga: <b>${esc(String(EQ.cgp||"—"))}</b><br>
+    ?`${isReserva(EQ)
+        /* Reserva não tem "padrão" de verdade — os cilindros trocam de posição com o
+           tempo, então mostrar isso como se fosse fixo confunde. Aqui mostra só o
+           agente/carga do cilindro que está nesta vaga agora. */
+        ?`<span class="lock" style="background:var(--cinza2)">🔄 pool de reserva</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
+      Agente do cilindro: <b>${esc(String(EQ.tipo||"—"))}</b> · Carga do cilindro: <b>${esc(String(EQ.carga??"—"))}</b><br>`
+        :`<span class="lock">🔒 padrão travado</span>Nº: <b>${esc(String(EQ.num??"—"))}</b> · Patrimônio: <b>${esc(String(EQ.pat??"—"))}</b><br>
+      Padrão de agente: <b>${esc(String(EQ.agp||"—"))}</b> · Padrão de carga: <b>${esc(String(EQ.cgp||"—"))}</b><br>`}
       Fabricação: <b>${fmtBR(EQ.fab)}</b> · Fabricante: <b>${esc(String(EQ.fabricante||"—"))}</b><br>
       Localização: <b>${esc(String(EQ.loc||"—"))}</b><br>
       Próx. Man. 2º Nível: <b>${fmtBR(EQ.man2)}</b> · 3º Nível: <b>${fmtBR(EQ.man3)}</b>
@@ -3819,8 +3825,9 @@ window.novoEquip=t=>{
   $("dlgBody").innerHTML= t==="ext" ? `<h3>➕ Novo extintor</h3>
     <label>ID do local (em branco = próximo número)</label><input id="cSeq" type="number" min="1" placeholder="ex.: 50 — se já existir, os locais 50 em diante viram 51, 52…">
     <div class="row"><div><label>Nº</label><input id="cNum"></div><div><label>Patrimônio</label><input id="cPat"></div></div>
-    <div class="row"><div><label>Padrão de agente</label><select id="cAgp"><option>CO2</option><option>AP</option><option>BC</option><option>EM</option><option>ABC</option></select></div>
-    <div><label>Padrão de carga</label><input id="cCgp" placeholder="ex.: 6kg"></div></div>
+    <div class="row"><div><label>Agente</label><select id="cAgp"><option>CO2</option><option>AP</option><option>BC</option><option>EM</option><option>ABC</option></select></div>
+    <div><label>Carga</label><input id="cCgp" placeholder="ex.: 6kg"></div></div>
+    <p style="font-size:11.5px;color:var(--cinza2);margin:2px 0 8px">Se a Localização abaixo ficar em branco, este equipamento vai pro <b>pool de reserva</b> — aí o Agente/Carga acima é só o cilindro que está entrando agora, não um "padrão" fixo (na reserva os cilindros trocam de posição com o tempo).</p>
     <label>Localização</label><input id="cLoc" placeholder="em branco = Reserva">
     <div class="row"><div><label>Fabricação (ano)</label><input id="cFab" type="number"></div><div><label>Fabricante</label><input id="cFabr"></div></div>
     <div class="row"><div><label>Próx. Man. 2º Nível</label><input id="cM2" type="date"></div><div><label>Próx. Man. 3º Nível</label><input id="cM3" type="date"></div></div>
@@ -3907,7 +3914,16 @@ async function proxSeqSeguro(reserva){
 window.salvaNovoExt=async()=>{
   if(!podeGravar())return;
   const loc=$("cLoc").value.trim()||"Reserva";
-  const novo={num:$("cNum").value.trim()||null,pat:$("cPat").value.trim()||null,agp:$("cAgp").value,cgp:$("cCgp").value.trim()||null,
+  /* Reserva não tem "padrão de agente/carga" — os cilindros trocam de posição com
+     o tempo (ver confirmaTroca/toggleEngex, que só atualizam tipo/carga, nunca
+     agp/cgp). Se aqui gravássemos um agp/cgp fixo pra reserva, ele ficaria
+     congelado pra sempre com o valor de hoje, e o app passaria a mostrar esse
+     valor velho em vez do cilindro real — em vez de cair no "senão" (o valor
+     de tipo/carga, sempre atualizado). Por isso, pra reserva, agp/cgp ficam
+     null desde a criação; só o tipo/carga (o cilindro de agora) é gravado. */
+  const reserva=/^\s*reserva/i.test(loc);
+  const novo={num:$("cNum").value.trim()||null,pat:$("cPat").value.trim()||null,
+    agp:reserva?null:$("cAgp").value,cgp:reserva?null:($("cCgp").value.trim()||null),
     tipo:$("cAgp").value,carga:$("cCgp").value.trim()||null,loc,fab:+$("cFab").value||null,fabricante:$("cFabr").value.trim()||null,
     man2:$("cM2").value||null,man3:$("cM3").value||null,criado:dataHoje()};
   const want=parseInt($("cSeq").value,10);
@@ -4167,9 +4183,17 @@ window.editarEquipAtual=()=>{
 window.abreEdicaoExtSeq=seq=>{
     const e=CAD.ext.find(x=>String(x.seq)===String(seq));
     if(!e)return toast("Não encontrado — selecione da lista.");
-    $("dlgBody").innerHTML=`<h3>✏️ Extintor ${e.seq} (Nº ${e.num??"—"})</h3>
+    /* Reserva não tem "padrão" — o cilindro troca com o tempo. Aqui os mesmos
+       campos xAgp/xCgp viram "Agente/Carga do cilindro" e editam tipo/carga
+       (o que está lá agora) em vez de agp/cgp; salvaEdEquip decide o destino
+       olhando pra este mesmo isReserva(e). Serve também pra corrigir um agp/cgp
+       antigo e errado que ficou congelado de quando a vaga foi criada (ver
+       salvaNovoExt) — ao salvar, ele é limpo. */
+    const reservaEd=isReserva(e);
+    $("dlgBody").innerHTML=`<h3>✏️ ${reservaEd?"Reserva":"Extintor"} ${e.seq} (Nº ${e.num??"—"})</h3>
       <div class="row"><div><label>Nº</label><input id="xNum" value="${esc(e.num??"")}"></div><div><label>Patrimônio</label><input id="xPat" value="${esc(e.pat??"")}"></div></div>
-      <div class="row"><div><label>Padrão de agente</label><input id="xAgp" value="${esc(e.agp??"")}"></div><div><label>Padrão de carga</label><input id="xCgp" value="${esc(e.cgp??"")}"></div></div>
+      <div class="row"><div><label>${reservaEd?"Agente do cilindro":"Padrão de agente"}</label><input id="xAgp" value="${esc((reservaEd?e.tipo:e.agp)??"")}"></div><div><label>${reservaEd?"Carga do cilindro":"Padrão de carga"}</label><input id="xCgp" value="${esc((reservaEd?e.carga:e.cgp)??"")}"></div></div>
+      ${reservaEd?`<p style="font-size:11.5px;color:var(--cinza2);margin:-6px 0 8px">Reserva não tem padrão fixo — isto é só o cilindro que está nesta vaga agora.</p>`:""}
       <label>Localização</label><input id="xLoc" value="${esc(e.loc??"")}">
       <div class="row"><div><label>Fabricação (ano)</label><input id="xFab" type="number" value="${esc(e.fab??"")}"></div><div><label>Fabricante</label><input id="xFabr" value="${esc(e.fabricante??"")}"></div></div>
       <div class="row"><div><label>Próx. Man. 2º Nível</label><input id="xM2" type="date" value="${e.man2||""}"></div><div><label>Próx. Man. 3º Nível</label><input id="xM3" type="date" value="${e.man3||""}"></div></div>
@@ -4210,7 +4234,17 @@ window.confereNumeroUnico=(seqAtual,num)=>{
 window.salvaEdEquip=async(t,id)=>{
   if(t==="ext"&&!confereNumeroUnico(id,$("xNum").value.trim()))return;
   if(t==="ext"){
-    const dados={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,agp:$("xAgp").value.trim()||null,cgp:$("xCgp").value.trim()||null,loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null,criado:($("xCriado")&&$("xCriado").value)||null};
+    /* Mesma decisão de abreEdicaoExtSeq: numa reserva, os campos xAgp/xCgp editam
+       o cilindro atual (tipo/carga), não um padrão (agp/cgp) — e aqui aproveita
+       pra limpar de vez qualquer agp/cgp antigo congelado que a vaga tenha
+       herdado da criação (ver salvaNovoExt), resolvendo o problema mesmo pra
+       reservas já cadastradas antes desta correção. */
+    const curEd=CAD.ext.find(x=>String(x.seq)===String(id));
+    const reservaEd=curEd&&isReserva(curEd);
+    const dados={num:$("xNum").value.trim()||null,pat:$("xPat").value.trim()||null,
+      agp:reservaEd?null:($("xAgp").value.trim()||null),cgp:reservaEd?null:($("xCgp").value.trim()||null),
+      ...(reservaEd?{tipo:$("xAgp").value.trim()||null,carga:$("xCgp").value.trim()||null}:{}),
+      loc:$("xLoc").value.trim()||null,fab:+$("xFab").value||null,fabricante:$("xFabr").value.trim()||null,man2:$("xM2").value||null,man3:$("xM3").value||null,criado:($("xCriado")&&$("xCriado").value)||null};
     CADX.extEdit[id]=dados;
     /* aplicaOvr monta o cadastro nesta ordem: base -> extEdit -> OVR.
        Como o OVR entra DEPOIS, ele sobrescrevia a edicao do admin: toda troca ou
@@ -4221,7 +4255,11 @@ window.salvaEdEquip=async(t,id)=>{
        Uma troca posterior continua mandando: ela reescreve o OVR de novo. */
     const sq=String(id), atual=OVR[sq];
     if(atual){
-      OVR[sq]={...atual,num:dados.num,fab:dados.fab,fabricante:dados.fabricante,man2:dados.man2,man3:dados.man3};
+      /* pra reserva, tipo/carga também precisa entrar no OVR — senão, quando a vaga
+         já tiver um OVR de uma troca anterior (guardando o cilindro que está lá),
+         ele prevaleceria por vir depois e a edição pareceria não ter feito nada. */
+      OVR[sq]={...atual,num:dados.num,fab:dados.fab,fabricante:dados.fabricante,man2:dados.man2,man3:dados.man3,
+        ...(reservaEd?{tipo:dados.tipo,carga:dados.carga}:{})};
       const okOvr=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[sq]:OVR[sq]}},{merge:true}));
       if(!okOvr)toast("\u26a0\ufe0f A correcao ainda nao confirmou no sistema. Confira depois de recarregar.");
     }
@@ -4695,6 +4733,15 @@ async function blocoAssinaturas(wb,ws,r,nomes){
    atual, e não o que era verdade na época daquela inspeção. */
 const SIT_TXT={cond:"Condenado",manut:"Em manutenção",engex:"Reserva Engex",reserva:"Reserva",area:"Em área"};
 const situacaoNoRelatorio=(e,insp)=>insp?.situacaoNaHora&&SIT_TXT[insp.situacaoNaHora]||situacaoDe("ext",e).txt;
+/* "Padrão de Ag./Carga" só existe de verdade pra local fixo (e.agp/e.cgp).
+   Reserva não tem padrão — o cilindro ali muda com o tempo — então pra reserva
+   a prioridade se inverte: primeiro o cilindro atual (tipo/carga), e só se nem
+   isso existir cai no agp/cgp (resquício de uma vaga cadastrada antes desta
+   correção). Sem essa inversão, uma reserva com agp/cgp antigo e errado
+   (congelado desde a criação, ver salvaNovoExt) mostrava esse valor velho no
+   relatório em vez do cilindro que está lá de verdade. */
+const agPadraoOuAtual=e=>(isReserva(e)?(e.tipo||e.agp):(e.agp||e.tipo))||"";
+const cgPadraoOuAtual=e=>(isReserva(e)?(e.carga??e.cgp):(e.cgp??e.carga))??"";
 window.exportXLSX=async tipo=>{
   const pm=$("pMes").value;
   /* Eder pediu pra poder escolher, na hora de baixar, se quer o arquivo completo
@@ -4729,12 +4776,9 @@ window.exportXLSX=async tipo=>{
       if(insp?.divergencia&&insp.diverg)obs=`⚠️ Divergência aceita (${insp.divergAceita}): padrão ${insp.diverg.agentePadrao} ${insp.diverg.cargaPadrao} → colocado ${insp.diverg.agenteInformado||insp.diverg.agentePadrao} ${insp.diverg.cargaInformada||insp.diverg.cargaPadrao}. ${obs}`;
       if(ws){
         const row=ws.getRow(r);row.height=75;
-        /* "Padrão de Ag./Carga" de um local fixo vem de e.agp/e.cgp. Um item em
-           manutenção (reserva que saiu pra recarga) nunca teve isso definido —
-           o dado real do cilindro que está lá fica em e.tipo/e.carga (ver
-           confirmaTroca/toggleEngex). Sem o fallback, essas colunas saíam em
-           branco no relatório mesmo com o cilindro certinho cadastrado. */
-        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
+        /* "Padrão de Ag./Carga": local fixo usa e.agp/e.cgp; reserva usa o cilindro
+           atual (e.tipo/e.carga), que é sempre o que vale nela — ver agPadraoOuAtual. */
+        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
           insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoNoRelatorio(e,insp),
           toDate(e.man2),toDate(e.man3),insp?toDate(insp.data):"",
           ...CHK_EXT.map(c=>insp?.checklist?.[c]||""),obs,insp?.conformidade||""];
@@ -4756,7 +4800,7 @@ window.exportXLSX=async tipo=>{
           const itensNC=CHK_EXT.filter(c=>insp.checklist?.[c]==="NC");
           obsResumo=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(obs?` ${obs}`:"");
         }
-        resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
+        resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
           situacaoNoRelatorio(e,insp),insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
       }
       r++;}
