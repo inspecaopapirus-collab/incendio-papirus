@@ -531,7 +531,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <script type="module">
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot as _onSnapshot, query, orderBy, getDocs, limit, where, deleteField, arrayUnion, arrayRemove, FieldPath } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot as _onSnapshot, query, orderBy, getDocs, getDocsFromServer, getDocFromServer, limit, where, deleteField, arrayUnion, arrayRemove, FieldPath } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
 /* ======== MODO TESTE — LE DADOS REAIS, GRAVA EM COPIAS teste_* ========
@@ -1422,10 +1422,17 @@ if(configOK) onAuthStateChanged(auth,u=>{
       escutar();});
     if(ISADMIN&&Date.now()-(+localStorage.getItem("lastBackup")||0)>30*864e5)
       setTimeout(()=>toast("💾 Lembrete: faça o backup mensal no Painel."),3500);
-    const venc=CAD.ext.filter(e=>diasAte(e.man2)<0||diasAte(e.man3)<0).length+CAD.hid.filter(h=>diasAte(h.man)<0||diasAte(h.th)<0).length;
-    if(venc)setTimeout(()=>toast(`⚠️ ${venc} equipamentos com manutenção vencida — veja a aba Vencimentos.`),1500);
-    prepNotif(venc);
+    /* o aviso de vencidos sai de avisoVencidos(), chamado por escutar() quando o
+       cadastro da nuvem chega. Contado aqui, ele usava o cadastro embutido no arquivo
+       (sem as trocas feitas depois) e ainda cobrava cilindro condenado. */
   }});
+let _avisouVenc=false;
+function avisoVencidos(){
+  if(_avisouVenc)return;_avisouVenc=true;
+  const venc=CAD.ext.filter(e=>!ehCondenado(e)&&(diasAte(e.man2)<0||diasAte(e.man3)<0)).length
+    +CAD.hid.filter(h=>diasAte(h.man)<0||diasAte(h.th)<0).length;
+  if(venc)setTimeout(()=>toast(`⚠️ ${venc} equipamentos com manutenção vencida — veja a aba Vencimentos.`),1500);
+  prepNotif(venc);}
 
 /* ---------- Notificação de vencimentos (melhor esforço; requer app instalado/Chrome) ---------- */
 async function prepNotif(qtd){
@@ -1796,6 +1803,19 @@ async function garanteMes(pm){
     MESES_CARREGADOS.add(pm);mesclaExtras();
   }catch(e){console.error("[mes "+pm+"]",e);
     toast("\u26a0\ufe0f N\u00e3o consegui carregar o m\u00eas "+pm+": "+(e.code||e.message));}}
+/* Traz do banco as inspecoes de um cilindro/equipamento que ficaram fora das 400
+   mais recentes, para o historico nao terminar de repente. O mesmo numero pode estar
+   gravado como texto ou como numero (cadastro antigo x digitado), por isso os dois. */
+async function garanteInspPor(campo,valores){
+  if(SNAP_OK&&!TRUNCADO)return true;
+  const vs=[...new Set(valores.filter(v=>v!==""&&v!=null&&!(typeof v==="number"&&isNaN(v))))].slice(0,10);
+  if(!vs.length)return true;
+  try{
+    const snap=await getDocs(query(collection(db,"inspecoes"),where(campo,"in",vs)));
+    const ids=new Set(EXTRA.map(i=>i.id));
+    snap.docs.forEach(d=>{if(!ids.has(d.id))EXTRA.push({id:d.id,...d.data()});});
+    mesclaExtras();return true;
+  }catch(e){console.error("[historico "+campo+"]",e);return false;}}
 function pintaFila(n){
   const e=$("filaOff");if(!e)return;
   e.textContent=n?"\ud83d\udcf4 "+n+" registro(s) aguardando envio":"";
@@ -1818,18 +1838,22 @@ function escutar(){
       TRUNCADO=snap.size>=LIMITE_INSP;if(!snap.metadata.fromCache)SNAP_OK=true;
       pintaFila(snap.docs.filter(d=>d.metadata.hasPendingWrites).length);
       mesclaExtras();render();},erroLeitura("inspecoes"));
-  onSnapshot(doc(db,"config","cadastroExt"),s=>{OVR=s.exists()?(s.data().overrides||{}):{};aplicaOvr();},erroLeitura("cadastro"));
+  /* o aviso de vencidos espera o cadastro da nuvem e a lista de condenados chegarem */
+  const chegou=new Set(),marca=k=>{chegou.add(k);if(chegou.size===3)avisoVencidos();};
+  _avisouVenc=false;
+  onSnapshot(doc(db,"config","cadastroExt"),s=>{OVR=s.exists()?(s.data().overrides||{}):{};aplicaOvr();marca("ovr");},erroLeitura("cadastro"));
   onSnapshot(doc(db,"config","cadastroCustom"),s=>{
     /* copia separada: o CADX e alterado na memoria antes de gravar, a copia nao */
     CADX_SRV=s.exists()?JSON.parse(JSON.stringify(s.data())):{};
-    if(s.exists())CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[],...s.data()};aplicaOvr();},erroLeitura("cadastro custom"));
+    if(s.exists())CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[],...s.data()};aplicaOvr();marca("cadx");},erroLeitura("cadastro custom"));
   onSnapshot(doc(db,"config","admins"),s=>{ADMINS=s.exists()?(s.data().emails||[]):[];recalcAdmin();},erroLeitura("admins"));
   onSnapshot(query(collection(db,"movimentacoes"),orderBy("criadoEm","desc")),snap=>{
     MOVS=snap.docs.map(d=>({id:d.id,...d.data()}));renderMovs();},erroLeitura("movimenta\u00e7\u00f5es"));
   onSnapshot(query(collection(db,"condenacoes"),orderBy("criadoEm","desc")),snap=>{
     CONDS=snap.docs.map(d=>({id:d.id,...d.data()}));
     /* a condenação muda quem pode ser trocado, inspecionado e cobrado no vencimento */
-    try{renderCond();render();renderVenc();mostraPadrao();}catch(e){}},
+    try{renderCond();render();renderVenc();mostraPadrao();}catch(e){}
+    marca("cond");},
     err=>{console.error("[condenacoes] leitura falhou:",err);
       toast("\u26a0\ufe0f N\u00e3o consegui ler a lista de condenados: "+err.code);});}
 function renderMovs(){
@@ -2350,7 +2374,7 @@ window.render=()=>{
         ${cd?`<span class="badge b-cond">⛔ CONDENADO</span>`:""}
         ${sitHora==="engex"?`<span class="badge b-engex">🏢 ENGEX</span>`:""}
         ${sitHora==="manut"?`<span class="badge b-manut">🔧 MANUTENÇÃO</span>`:""}
-        <h3 style="margin-top:6px">${id}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${i.eqSeq}`:""} · ${esc(i.eqLoc||"—")}</h3>
+        <h3 style="margin-top:6px">${esc(String(id??"—"))}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${esc(String(i.eqSeq))}`:""} · ${esc(i.eqLoc||"—")}</h3>
         ${i.tipo==="ext"&&(i.tipoLocal||i.cargaLocal)?`<p style="font-size:12.5px;color:var(--vinho);font-weight:700">${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</p>`:""}
         <p>${esc(i.obs||"Sem observações.")}</p>
         <div class="meta">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
@@ -2376,15 +2400,20 @@ window.render=()=>{
   const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e)&&jaExistiaEm(e,pm));
   const hidRota=CAD.hid.filter(h=>jaExistiaEm(h,pm));
   const tot=extRota.length+hidRota.length;
-  $("kInsp").textContent=inspEq.size;
-  $("kPend").textContent=Math.max(0,tot-inspEq.size);
+  /* so os pontos DA ROTA contam como inspecionados: inspecao de ponto que saiu da rota
+     (condenado, em manutencao, removido) escondia uma pendencia de verdade e o
+     percentual podia passar de 100% — ver a mesma conta no laudo */
+  const inspRota=extRota.filter(e=>inspEq.has("ext_"+e.seq)).length
+    +hidRota.filter(h=>inspEq.has("hid_"+h.seq)).length;
+  $("kInsp").textContent=inspRota;
+  $("kPend").textContent=Math.max(0,tot-inspRota);
   $("kNC").textContent=mesArr.filter(i=>i.conformidade==="NC").length;
   $("kDiv").textContent=mesArr.filter(i=>i.divergencia).length;
   const pendExt=[],pendHid=[];
   extRota.forEach(e=>{if(!inspEq.has("ext_"+e.seq))pendExt.push({t:"ext",id:e.seq,lb:isReserva(e)?`🧯 Reserva (Nº ${e.num??"—"})`:`🧯 Ext ${e.seq} (Nº ${e.num??"—"})`,loc:e.loc||"Sem área"});});
   hidRota.forEach(h=>{if(!inspEq.has("hid_"+h.seq))pendHid.push({t:"hid",id:h.pat,lb:`🚒 ${h.pat}`,loc:h.loc||"Sem área"});});
   const pendTotal=pendExt.length+pendHid.length;
-  const pct=tot?Math.round(100*inspEq.size/tot):0;
+  const pct=tot?Math.round(100*inspRota/tot):0;
   const blocoRota=(lista,rotulo)=>{
     if(!lista.length)return `<p style="font-size:12.5px;color:var(--ok);margin:6px 0 2px">✅ Todos os ${rotulo} inspecionados!</p>`;
     const areas={};lista.forEach(p=>{const a=normRota(p.loc);(areas[a]=areas[a]||[]).push(p);});
@@ -2470,7 +2499,7 @@ window.render=()=>{
   }
   $("pendBox").innerHTML=`<b>🗺️ Rota de inspeção — ${pm.split("-").reverse().join("/")}</b>
     <div style="background:#eee;border-radius:8px;height:14px;margin:10px 0;overflow:hidden"><div style="background:linear-gradient(90deg,#16a34a,#65a30d);height:100%;width:${pct}%"></div></div>
-    <div style="font-size:12px;color:var(--cinza);margin-bottom:10px">${inspEq.size}/${tot} inspecionados (${pct}%) · ${pendTotal} pendentes — toque na área e no item para inspecionar</div>
+    <div style="font-size:12px;color:var(--cinza);margin-bottom:10px">${inspRota}/${tot} inspecionados (${pct}%) · ${pendTotal} pendentes — toque na área e no item para inspecionar</div>
     <b style="font-size:13.5px;color:var(--vinho)">🧯 Extintores — ${pendExt.length} pendentes</b>
     ${blocoRota(pendExt,"extintores")}
     <b style="font-size:13.5px;color:#1d4ed8;display:block;margin-top:16px">🚒 Hidrantes — ${pendHid.length} pendentes</b>
@@ -2506,7 +2535,15 @@ function desenhaGraficos(){
     :`<p style="font-size:13px;color:var(--cinza);margin-top:8px">Nenhuma não conformidade registrada até agora.</p>`);}
 
 /* ---------- Vencimentos ---------- */
-function diasAte(d){if(!d)return null;return Math.round((new Date(d)-new Date())/864e5);}
+/* Dias ate a data (AAAA-MM-DD), contados em dias do calendario de Brasilia.
+   new Date("2026-09-29") e meia-noite de Londres = 21h do dia 28 aqui: o equipamento
+   aparecia "vencido ha 1d" ja na manha do proprio dia do vencimento. Vence no fim
+   do dia informado: no dia, 0; no dia seguinte, -1. */
+function diasAte(d){if(!d)return null;
+  const m=String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const alvo=m?new Date(+m[1],+m[2]-1,+m[3]):new Date(d);if(isNaN(alvo))return null;
+  const h=new Date(),hoje=new Date(h.getFullYear(),h.getMonth(),h.getDate());
+  return Math.round((alvo-hoje)/864e5);}
 function badgeVenc(dias){
   if(dias===null)return "";
   if(dias<0)return `<span class="badge" style="background:var(--nc)">vencido há ${-dias}d</span>`;
@@ -2570,7 +2607,7 @@ window.renderVenc=()=>{
   if(!fA&&fG!=="res")CAD.hid.forEach(h=>{
     [["Manutenção",h.man],["T. Hidrostático",h.th]].forEach(([rot,dt])=>{
       const dd=diasAte(dt);if(!passa(dd,dt))return;
-      lh.push({d:dd,h:`<div class="venc"><span>🚒 ${h.pat} · ${rot} ${fmtBR(dt)}<br><small style="color:var(--cinza)">${h.loc||""}</small></span>${badgeVenc(dd)}</div>`});});});
+      lh.push({d:dd,h:`<div class="venc"><span>🚒 ${esc(String(h.pat))} · ${rot} ${fmtBR(dt)}<br><small style="color:var(--cinza)">${esc(h.loc||"")}</small></span>${badgeVenc(dd)}</div>`});});});
   lh.sort((a,b)=>a.d-b.d);
   $("vencHid").innerHTML=fA?`<b>🚒 Hidrantes</b><p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Ocultos: o filtro de agente vale só para extintores. Volte o agente para "todos" para vê-los.</p>`
     :fG==="res"?`<b>🚒 Hidrantes</b><p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Ocultos pelo filtro "Só reserva".</p>`
@@ -2628,7 +2665,9 @@ window.renderCond=()=>{
 
 /* ================= Histórico completo de um cilindro =================
    Junta inspeções, substituições e a condenação em uma linha do tempo só. */
-window.historicoCilindro=num=>{
+window.historicoCilindro=async num=>{
+  const completo=await garanteInspPor("eqNum",[String(num).trim(),Number(num)]);
+  if(!completo)toast("⚠️ Sem conexão: o histórico mostra só as inspeções mais recentes.");
   const k=chaveCil(num);
   const cd=condDe(num),cdAll=CONDS.filter(c=>chaveCil(c.num)===k);
   const eq=CAD.ext.find(e=>chaveCil(e.num)===k)||null;
@@ -2710,17 +2749,20 @@ window.abrir=async id=>{
   const cab=i.tipo==="ext"?`Extintor Nº ${i.eqNum??i.eqSeq}`:`Hidrante ${i.eqPat}`;
   let detalhe="";
   if(i.tipo==="ext"){
-    detalhe=`<p style="font-size:13.5px"><b>Tipo no local:</b> ${i.tipoLocal||"—"} · <b>Carga no local:</b> ${i.cargaLocal||"—"}</p>`;
-    if(i.divergencia&&i.diverg)detalhe+=`<div class="divergBox">⚠️ Divergência aceita (${i.divergAceita}): padrão ${i.diverg.agentePadrao} ${i.diverg.cargaPadrao} → colocado ${i.diverg.agenteInformado||i.diverg.agentePadrao} ${i.diverg.cargaInformada||i.diverg.cargaPadrao}</div>`;
-    detalhe+="<p style='font-size:13.5px;margin-top:8px'><b>Checklist:</b><br>"+CHK_EXT.map(c=>`${c}: <b style="color:${i.checklist?.[c]==="NC"?"var(--nc)":"inherit"}">${i.checklist?.[c]||"—"}</b>`).join(" · ")+"</p>";}
-  else{const h=i.hid||{};
-    detalhe=`<p style="font-size:13.5px;line-height:1.8"><b>Storz:</b> ${h.storz||"—"} (qtd ${h.qtdStorz||"—"}) · <b>Esguichos:</b> ${h.esguichos||"—"} ${h.tipoEsguicho?`(${esc(h.tipoEsguicho)}, qtd ${h.qtdEsguichos||"—"})`:""}<br>
-    <b>Mangueiras:</b> ${h.mangueiras||"—"} (qtd ${h.qtdMangueiras||"—"}, lances ${h.lances||"—"}) · <b>Registro:</b> ${h.registro||"—"}<br>
-    <b>Sinalização de solo:</b> ${h.sinSolo||"—"} · <b>Sinalização aérea:</b> ${h.sinAerea||"—"} · <b>Abrigo lacrado:</b> ${h.abrigo||"—"}<br>
+    /* tudo que o inspetor digita passa por esc(): sem isso, um texto com codigo no
+       campo "carga no local" rodava na sessao do admin que abrisse o registro */
+    const e_=v=>esc(String(v??"—"));
+    detalhe=`<p style="font-size:13.5px"><b>Tipo no local:</b> ${e_(i.tipoLocal||"—")} · <b>Carga no local:</b> ${e_(i.cargaLocal||"—")}</p>`;
+    if(i.divergencia&&i.diverg)detalhe+=`<div class="divergBox">⚠️ Divergência aceita (${e_(i.divergAceita)}): padrão ${e_(i.diverg.agentePadrao)} ${e_(i.diverg.cargaPadrao)} → colocado ${e_(i.diverg.agenteInformado||i.diverg.agentePadrao)} ${e_(i.diverg.cargaInformada||i.diverg.cargaPadrao)}</div>`;
+    detalhe+="<p style='font-size:13.5px;margin-top:8px'><b>Checklist:</b><br>"+CHK_EXT.map(c=>`${c}: <b style="color:${i.checklist?.[c]==="NC"?"var(--nc)":"inherit"}">${e_(i.checklist?.[c]||"—")}</b>`).join(" · ")+"</p>";}
+  else{const h=i.hid||{},e_=v=>esc(String(v||"—"));
+    detalhe=`<p style="font-size:13.5px;line-height:1.8"><b>Storz:</b> ${e_(h.storz)} (qtd ${e_(h.qtdStorz)}) · <b>Esguichos:</b> ${e_(h.esguichos)} ${h.tipoEsguicho?`(${esc(h.tipoEsguicho)}, qtd ${e_(h.qtdEsguichos)})`:""}<br>
+    <b>Mangueiras:</b> ${e_(h.mangueiras)} (qtd ${e_(h.qtdMangueiras)}, lances ${e_(h.lances)}) · <b>Registro:</b> ${e_(h.registro)}<br>
+    <b>Sinalização de solo:</b> ${e_(h.sinSolo)} · <b>Sinalização aérea:</b> ${e_(h.sinAerea)} · <b>Abrigo lacrado:</b> ${e_(h.abrigo)}<br>
     ${h.outros?`<b>Outros:</b> ${esc(h.outros)}`:""}</p>`;}
   const F=await fotosDe(i);
   $("dlgBody").innerHTML=`
-    <span class="badge" style="background:${i.conformidade==="NC"?"var(--nc)":"var(--ok)"}">${i.conformidade}</span>
+    <span class="badge" style="background:${i.conformidade==="NC"?"var(--nc)":"var(--ok)"}">${esc(i.conformidade)}</span>
     <h3 style="margin:10px 0 4px">${esc(cab)} · ${esc(i.eqLoc||"—")}</h3>
     <p style="font-size:12px;color:var(--cinza)">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</p>
     ${detalhe}
@@ -3308,11 +3350,16 @@ window.laudoPDF=async()=>{
     +CAD.hid.filter(h=>!jaExistiaEm(h,pm)).length;
   const totPontos=extRota.length+hidRota.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
+  /* Inspecionados = pontos DA ROTA que tem inspecao. Contar o conjunto inteiro somava
+     pontos que sairam da rota (condenado, em manutencao, removido): a cobertura podia
+     passar de 100% e o numero de pendencias ficava menor que a lista da secao 5. */
+  const inspRota=extRota.filter(e=>inspSet.has("ext_"+e.seq)).length
+    +hidRota.filter(h=>inspSet.has("hid_"+h.seq)).length;
   const nc=atual.filter(i=>i.conformidade==="NC");
   const div=atual.filter(i=>i.divergencia);
   const condMes=CONDS.filter(c=>c.ativo!==false&&String(c.mes||String(c.data||"").slice(0,7))===pm)
     .sort((a,b)=>String(a.data||"").localeCompare(String(b.data||"")));
-  const cobertura=totPontos?Math.round(100*inspSet.size/totPontos):0;
+  const cobertura=totPontos?Math.round(100*inspRota/totPontos):0;
   const confPct=atual.length?Math.round(100*(atual.length-nc.length)/atual.length):0;
 
   /* assinaturas dos inspetores do mês */
@@ -3333,13 +3380,13 @@ window.laudoPDF=async()=>{
 
   /* vencimentos */
   const vInst=[],vRes=[];
-  CAD.ext.filter(e=>jaExistiaEm(e,pm)).forEach(e=>{[["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([r,d])=>{
+  CAD.ext.filter(e=>jaExistiaEm(e,pm)&&!ehCondenado(e)).forEach(e=>{[["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([r,d])=>{
     const dd=diasAte(d);if(dd!==null&&dd<=90)(isReserva(e)?vRes:vInst).push({q:isReserva(e)?`Reserva Nº ${e.num??"—"}`:`Ext ${e.seq} (Nº ${e.num??"—"})`,r,d,dd,loc:isReserva(e)?"Pool de reserva":(e.loc||"")});});});
   hidRota.forEach(h=>{[["Manutenção",h.man],["T. Hidrostático",h.th]].forEach(([r,d])=>{
     const dd=diasAte(d);if(dd!==null&&dd<=90)vInst.push({q:`Hidrante ${h.pat}`,r,d,dd,loc:h.loc||""});});});
   vInst.sort((a,b)=>a.dd-b.dd);vRes.sort((a,b)=>a.dd-b.dd);
 
-  const linhaExt=i=>`<tr><td>${i.eqSeq??"—"}</td><td>${esc(String(i.eqNum??"—"))}</td><td>${esc(i.eqLoc||"—")}</td>
+  const linhaExt=i=>`<tr><td>${esc(String(i.eqSeq??"—"))}</td><td>${esc(String(i.eqNum??"—"))}</td><td>${esc(i.eqLoc||"—")}</td>
     <td>${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</td>
     <td class="${i.conformidade==="NC"?"nc":"ok"}">${i.conformidade||"—"}</td>
     <td>${i.divergencia?"Sim":"—"}</td><td>${fmtBR(i.data)}</td><td>${esc(i.inspetor||"")}</td></tr>`;
@@ -3400,7 +3447,7 @@ window.laudoPDF=async()=>{
   <h2>1. Resumo do período</h2>
   <div class="kpis">
     <div class="k"><b>${totPontos}</b><span>Pontos</span></div>
-    <div class="k"><b>${inspSet.size}</b><span>Inspecionados</span></div>
+    <div class="k"><b>${inspRota}</b><span>Inspecionados</span></div>
     <div class="k"><b>${cobertura}%</b><span>Cobertura</span></div>
     <div class="k"><b>${confPct}%</b><span>Conformidade</span></div>
     <div class="k"><b>${nc.length}</b><span>Não conformes</span></div>
@@ -3426,7 +3473,7 @@ window.laudoPDF=async()=>{
       ${(()=>{const F=FNC.get(i.id)||{};return (F.foto1||F.foto2)?`<div class="fotos">${F.foto1?`<img src="${F.foto1}">`:""}${F.foto2?`<img src="${F.foto2}">`:""}</div>`:"";})()}
     </div>`).join(""):`<p class="vazio">Nenhuma não conformidade registrada no período.</p>`}
 
-  <h2>5. Pendências do período (${totPontos-inspSet.size})</h2>
+  <h2>5. Pendências do período (${totPontos-inspRota})</h2>
   ${criadosDepois?`<p class="nota">${criadosDepois} equipamento(s) cadastrado(s) depois deste período não entram na rota nem nas pendências — passam a ser cobrados a partir do mês em que foram cadastrados.</p>`:""}
   ${(()=>{const rr=extRota.filter(e=>isReserva(e)),rp=rr.filter(e=>!inspSet.has("ext_"+e.seq));
     if(!rp.length)return "";
@@ -3476,13 +3523,37 @@ window.laudoPDF=async()=>{
   toast("📄 Laudo gerado — na janela de impressão escolha \"Salvar como PDF\".");};
 
 /* ---------- Backup ---------- */
-window.backupJSON=()=>{
-  if(!ISADMIN)return;
-  const data={geradoEm:new Date().toISOString(),inspecoes:ITENS,movimentacoes:MOVS,cadastroOverrides:OVR,cadastroCustom:CADX};
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:"application/json"}));
-  a.download=`backup_incendio_${dataLocal()}.json`;a.click();
-  localStorage.setItem("lastBackup",Date.now());audit("backup",null);toast("💾 Backup baixado!");};
+/* Backup completo, lido DIRETO do servidor. Antes ele gravava o que estava na memoria
+   do aparelho: so as 400 inspecoes mais recentes (LIMITE_INSP), sem condenacoes nem
+   usuarios — e o "Zerar" apagava TUDO do banco confiando nesse arquivo incompleto.
+   As fotos ficam de fora (sao grandes demais para um arquivo so).
+   Devolve true so quando o arquivo foi gerado com todas as colecoes. */
+window.backupJSON=async()=>{
+  if(!ISADMIN)return false;
+  toast("💾 Gerando backup completo…");
+  try{
+    const col=async n=>(await getDocsFromServer(collection(db,n))).docs.map(d=>({id:d.id,...d.data()}));
+    const cfg=async n=>{const s=await getDocFromServer(doc(db,"config",n));return s.exists()?s.data():null;};
+    const [inspecoes,movimentacoes,condenacoes,tratativas,usuarios,cadastroExt,cadastroCustom,admins]=await Promise.all([
+      col("inspecoes"),col("movimentacoes"),col("condenacoes"),col("tratativas"),col("usuarios"),
+      cfg("cadastroExt"),cfg("cadastroCustom"),cfg("admins")]);
+    const data={geradoEm:new Date().toISOString(),versao:2,
+      contagem:{inspecoes:inspecoes.length,movimentacoes:movimentacoes.length,condenacoes:condenacoes.length,
+        tratativas:tratativas.length,usuarios:usuarios.length},
+      inspecoes,movimentacoes,condenacoes,tratativas,usuarios,
+      config:{cadastroExt,cadastroCustom,admins},
+      /* nomes antigos, para quem ja tem rotina lendo o backup v1 */
+      cadastroOverrides:(cadastroExt&&cadastroExt.overrides)||{},
+      observacao:"Fotos nao incluidas (colecao fotos). Inspecoes, movimentacoes, condenacoes, tratativas, usuarios e cadastro completos."};
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:"application/json"}));
+    a.download=`backup_incendio_${dataLocal()}.json`;a.click();
+    localStorage.setItem("lastBackup",Date.now());audit("backup",data.contagem);
+    toast(`💾 Backup baixado: ${inspecoes.length} inspeções, ${movimentacoes.length} movimentações, ${condenacoes.length} condenações.`);
+    return true;
+  }catch(e){console.error("[backup]",e);
+    toast("⚠️ Backup NÃO gerado — precisa de conexão com o servidor ("+(e.code||e.message)+").");
+    return false;}};
 
 /* ---------- Zerar dados (recomeçar do cadastro embutido) ----------
    Apaga inspeções e movimentações da nuvem e devolve o cadastro de extintores
@@ -3517,7 +3588,10 @@ window.confirmaZerar=async()=>{
   const btn=$("dlgBody").querySelector("button.btn");
   if(btn){btn.disabled=true;btn.textContent="Apagando…";}
   try{
-    backupJSON();
+    /* sem backup completo confirmado, nada e apagado */
+    if(!(await backupJSON())){
+      if(btn){btn.disabled=false;btn.textContent="🧹 Apagar e recomeçar";}
+      return toast("⛔ Nada foi apagado: o backup completo não pôde ser gerado.");}
     let apagados=0;
     for(const col of ["inspecoes","movimentacoes"]){
       const snap=await getDocs(collection(db,col));
@@ -3539,7 +3613,8 @@ window.confirmaZerar=async()=>{
 window.zapVenc=()=>{
   const linhas=[];
   const add=(txt,dt)=>{const dias=diasAte(dt);if(dias!==null&&dias<=30)linhas.push(`${txt}: ${fmtBR(dt)} (${dias<0?"vencido há "+(-dias)+"d":"em "+dias+"d"})`);};
-  CAD.ext.forEach(e=>{const r=isReserva(e)?`🧯 Reserva Nº ${e.num??"—"}`:`🧯 Ext ${e.seq} Nº ${e.num??"—"}`;
+  CAD.ext.forEach(e=>{if(ehCondenado(e))return;   /* fora de operação: não se cobra manutenção */
+    const r=isReserva(e)?`🧯 Reserva Nº ${e.num??"—"}`:`🧯 Ext ${e.seq} Nº ${e.num??"—"}`;
     add(`${r} — Man. 2º Nível`,e.man2);add(`${r} — Man. 3º Nível`,e.man3);});
   CAD.hid.forEach(h=>{add(`🚒 ${h.pat} — Manutenção`,h.man);add(`🚒 ${h.pat} — T. Hidrostático`,h.th);});
   if(!linhas.length)return toast("Nada vencido ou vencendo em 30 dias. 👍");
@@ -3703,7 +3778,12 @@ window.geraEtiquetas=async()=>{
   setTimeout(()=>{fr.contentWindow.print();setTimeout(()=>fr.remove(),3000);},500);};
 
 /* ---------- Histórico por equipamento ---------- */
-window.historicoEquip=()=>{
+window.historicoEquip=async()=>{
+  if(!EQ)return;
+  const completo=TIPO==="ext"
+    ?await garanteInspPor("eqSeq",[Number(EQ.seq),String(EQ.seq)])
+    :(await garanteInspPor("eqPat",[String(EQ.pat)]))&&(await garanteInspPor("eqSeq",[Number(EQ.seq)]));
+  if(!completo)toast("⚠️ Sem conexão: o histórico mostra só as inspeções mais recentes.");
   if(!EQ)return;
   const key=TIPO==="ext"?EQ.seq:EQ.pat;
   const insp=ITENS.filter(i=>i.tipo===TIPO&&String(i.eqSeq??i.eqPat)===String(TIPO==="ext"?key:EQ.seq)||i.tipo===TIPO&&String(i.eqPat)===String(key));
@@ -3717,7 +3797,7 @@ window.historicoEquip=()=>{
       <b>${fmtBR(i.data)}</b> · ${esc(i.inspetor||"")}<br>
       ${TIPO==="ext"?`${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")} · NC: ${Object.entries(i.checklist||{}).filter(([k,v])=>v==="NC").map(([k])=>k).join(", ")||"nenhuma"}`:""}
       ${i.obs?`<br><small style="color:var(--cinza)">${esc(i.obs)}</small>`:""}</div>`).join(""):"<p>Nenhuma inspeção registrada para este equipamento.</p>"}
-    ${movs.length?"<br><b>🔁 Substituições nesta posição</b>"+movs.map(m=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0">${fmtBR(m.data)} — saiu Nº ${m.saiu} → entrou Nº ${m.entrou} · ${esc(m.inspetor||"")}</div>`).join(""):""}
+    ${movs.length?"<br><b>🔁 Substituições nesta posição</b>"+movs.map(m=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0">${fmtBR(m.data)} — saiu Nº ${esc(String(m.saiu??"—"))} → entrou Nº ${esc(String(m.entrou??"—"))} · ${esc(m.inspetor||"")}</div>`).join(""):""}
     </div><button class="btn sec" onclick="dlg.close()">Fechar</button>`;
   $("dlg").showModal();};
 
@@ -4927,17 +5007,25 @@ window.exportXLSX=async tipo=>{
     }
     let r=8;
     const resumoExt=[];
-    for(const e of CAD.ext){
-      const insp=ultima[String(e.seq)]||null;
+    /* So entra quem ja existia no mes (mesma regra do painel e do laudo): antes, um
+       ponto criado em outubro saia no relatorio de agosto como "nao inspecionado". */
+    for(const e of CAD.ext.filter(x=>jaExistiaEm(x,pm))){
+      const insp0=ultima[String(e.seq)]||null;
+      /* O cilindro da linha e o que FOI inspecionado, nao o que esta no local hoje: num
+         mes passado com troca depois da inspecao, o relatorio atribuia a inspecao ao
+         cilindro errado. Os dados de fabricacao/manutencao vem desse cilindro. */
+      const trocou=insp0&&insp0.eqNum!=null&&String(insp0.eqNum)!==String(e.num??"");
+      const cil=trocou?(CAD.ext.find(x=>String(x.num)===String(insp0.eqNum))||{num:insp0.eqNum}):e;
+      const insp=insp0;
       let obs=insp?.obs||"";
       if(insp?.divergencia&&insp.diverg)obs=`⚠️ Divergência aceita (${insp.divergAceita}): padrão ${insp.diverg.agentePadrao} ${insp.diverg.cargaPadrao} → colocado ${insp.diverg.agenteInformado||insp.diverg.agentePadrao} ${insp.diverg.cargaInformada||insp.diverg.cargaPadrao}. ${obs}`;
       if(ws){
         const row=ws.getRow(r);row.height=75;
         /* "Padrão de Ag./Carga": local fixo usa e.agp/e.cgp; reserva usa o cilindro
            atual (e.tipo/e.carga), que é sempre o que vale nela — ver agPadraoOuAtual. */
-        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
-          insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoNoRelatorio(e,insp),
-          toDate(e.man2),toDate(e.man3),insp?toDate(insp.data):"",
+        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",cil.num??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
+          insp?.tipoLocal||"",insp?.cargaLocal||"",cil.fab??"",cil.fabricante||"",e.loc||"",situacaoNoRelatorio(e,insp),
+          toDate(cil.man2),toDate(cil.man3),insp?toDate(insp.data):"",
           ...CHK_EXT.map(c=>insp?.checklist?.[c]||""),obs,insp?.conformidade||""];
         ws.getCell(r,14).numFmt="mmm-yy";ws.getCell(r,15).numFmt="mmm-yy";ws.getCell(r,16).numFmt="dd/mm/yyyy";
         row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>28)return;dataCell(cell,cn===6||cn===7,true);
@@ -4957,7 +5045,7 @@ window.exportXLSX=async tipo=>{
           const itensNC=CHK_EXT.filter(c=>insp.checklist?.[c]==="NC");
           obsResumo=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(obs?` ${obs}`:"");
         }
-        resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
+        resumoExt.push([e.seq,e.loc||"",cil.num??"",e.pat??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
           situacaoNoRelatorio(e,insp),insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
       }
       r++;}
@@ -5011,7 +5099,7 @@ window.exportXLSX=async tipo=>{
     }
     let r=8;
     const resumoHid=[];
-    for(const e of CAD.hid){
+    for(const e of CAD.hid.filter(x=>jaExistiaEm(x,pm))){
       const insp=ultima[String(e.seq)]||null;
       const h=insp?.hid||{};
       if(ws){
