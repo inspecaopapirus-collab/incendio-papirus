@@ -1,0 +1,29 @@
+name: Testes automaticos
+# Roda a cada pull request e a cada push em main/teste. Nao publica nada:
+# usa o emulador do Firebase (projeto demo-*), nunca o banco real.
+on:
+  pull_request:
+  push:
+    branches: [main, teste]
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Unidade (datas, gravacao do cadastro)
+        run: npm run test:unidade
+      - name: Regras do Firestore e app no navegador (emulador)
+        run: npm run emulador

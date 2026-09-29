@@ -529,9 +529,9 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot, query, orderBy, getDocs, limit, where, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, writeBatch as _writeBatch, doc, getDoc, setDoc as _setDoc, onSnapshot as _onSnapshot, query, orderBy, getDocs, getDocsFromServer, getDocFromServer, limit, where, deleteField, arrayUnion, arrayRemove, FieldPath } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
 
 /* ======== MODO TESTE — LE DADOS REAIS, GRAVA EM COPIAS teste_* ========
@@ -896,7 +896,12 @@ const emManutencao=e=>!!(e&&e.manut);
    cada item criado guarda a data no campo "criado" (AAAA-MM-DD) e so entra na
    rota do mes dessa data em diante. Item SEM a data e do cadastro original:
    conta em todos os meses, como sempre contou (nao mexe em nada ja fechado). */
-const dataHoje=()=>new Date().toISOString().slice(0,10);
+/* Data no fuso do APARELHO (Brasilia). toISOString() devolve a data em UTC: das 21h
+   a meia-noite ela ja e o dia seguinte, e no ultimo dia do mes a inspecao da noite
+   caia no mes seguinte - o equipamento aparecia pendente no mes que ela cobria. */
+const dataLocal=(d=new Date())=>{const x=new Date(d);
+  return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");};
+const dataHoje=()=>dataLocal();
 const mesDeCriacao=e=>String((e&&e.criado)||"").slice(0,7);
 const jaExistiaEm=(e,pm)=>{const c=mesDeCriacao(e);return !c||!pm||c<=pm;};
 
@@ -1147,6 +1152,7 @@ window.toggleEngex=async()=>{
     const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
     const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;});
     novoSeq=await proxSeqSeguro(true);
+    if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
     OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
@@ -1156,7 +1162,7 @@ window.toggleEngex=async()=>{
     /* grava SO esta posicao (e, quando há manutenção nova, o extAdd inteiro — não
        tem como gravar só um item de um array). Antes regravava o mapa inteiro a
        partir da memoria: um aparelho com estado antigo apagava o trabalho dos outros. */
-    const okCadxAdd=novoSeq?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
+    const okCadxAdd=novoSeq?await comTimeout(gravaCADX()):true;
     const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
     const okMov=vaiParaManut?await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataHoje(),
       motivo:"Reserva Engex",posicao:seqOriginal,loc:locOriginal,saiu:numOriginal,entrou:null,
@@ -1164,7 +1170,11 @@ window.toggleEngex=async()=>{
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()})):true;
     const ok=okCadxAdd&&okEngex&&okMov;
     audit(ligando?"marcar_engex":"desmarcar_engex",{seq,num:numOriginal,...(novoSeq?{foiParaManutencaoComo:novoSeq}:{})},ok);
-    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    /* ok=false aqui e "passou do prazo", nao "recusado": a gravacao continua na fila do
+       aparelho e sobe sozinha (a recusa de verdade cai no catch abaixo, ou no aviso do
+       comTimeout). Desfazer a memoria agora mostrava o estado antigo na tela e, pior, a
+       proxima gravacao do cadastro mandaria o estado antigo por cima da que esta na fila. */
+    aplicaOvr();
     avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva Engex — Nº ${numOriginal} foi para manutenção/recarga.`:"🏢 Marcado como reserva Engex."):"✅ Reserva Engex removida.");
   }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro ao salvar: "+e.message);}
 };
@@ -1198,6 +1208,7 @@ window.confirmaMigraEngexAntigos=async()=>{
     const e=CAD.ext.find(x=>String(x.seq)===s);if(!e||!e.num)continue;
     const doEQ={};CAMPOS.forEach(c=>{doEQ[c]=e[c]??null;});
     const novoSeq=await proxSeqSeguro(true);
+    if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
     OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||""};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
@@ -1206,7 +1217,7 @@ window.confirmaMigraEngexAntigos=async()=>{
     registrados.push({seqOrigem:e.seq,loc:e.loc||"",num:doEQ.num});}
   if(!registrados.length){$("dlg").close();return toast("Nada para migrar — os itens marcados não têm Nº de cilindro.");}
   try{
-    const okCadxAdd=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okCadxAdd=await comTimeout(gravaCADX());
     const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
     let okMov=true;
     for(const r of registrados){
@@ -1216,7 +1227,11 @@ window.confirmaMigraEngexAntigos=async()=>{
       if(!ok1)okMov=false;}
     const ok=okCadxAdd&&okEngex&&okMov;
     audit("migrar_engex_retroativo",{qtd:registrados.length,seqs:registrados.map(r=>r.seqOrigem)},ok);
-    if(ok)aplicaOvr();else{OVR=ovrAntes;CADX=cadxAntes;}
+    /* ok=false aqui e "passou do prazo", nao "recusado": a gravacao continua na fila do
+       aparelho e sobe sozinha (a recusa de verdade cai no catch abaixo, ou no aviso do
+       comTimeout). Desfazer a memoria agora mostrava o estado antigo na tela e, pior, a
+       proxima gravacao do cadastro mandaria o estado antigo por cima da que esta na fila. */
+    aplicaOvr();
     $("dlg").close();
     avisaGravacao(ok,`✅ ${registrados.length} equipamento(s) migrado(s) para manutenção/recarga.`);
   }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro na migração: "+e.message);}};
@@ -1364,11 +1379,11 @@ window.subtab=btn=>{
    montar a lista, do mesmo jeito que os relatórios já garantem o mês escolhido. */
 async function garanteMesesRecentes(n=12){
   const d=new Date();
-  for(let i=0;i<n;i++)await garanteMes(new Date(d.getFullYear(),d.getMonth()-i,1).toISOString().slice(0,7));}
+  for(let i=0;i<n;i++)await garanteMes(dataLocal(new Date(d.getFullYear(),d.getMonth()-i,1)).slice(0,7));}
 function fillMeses(){
   const out=[];const d=new Date();
   for(let i=0;i<18;i++){const m=new Date(d.getFullYear(),d.getMonth()-i,1);
-    out.push(m.toISOString().slice(0,7));}
+    out.push(dataLocal(m).slice(0,7));}
   $("pMes").innerHTML=out.map(m=>`<option value="${m}">${m.split("-").reverse().join("/")}</option>`).join("");
   /* mesmo seletor em Registros, com a opção "todos" na frente (ajuste D) */
   const fl=$("flMes");
@@ -1390,6 +1405,7 @@ window.sair=()=>signOut(auth);
 if(configOK) onAuthStateChanged(auth,u=>{
   $("login").classList.toggle("hidden",!!u);
   $("app").classList.toggle("hidden",!u);
+  if(!u)pararEscutas();
   if(u){
     recalcAdmin();
     carregarNome(u).then(()=>{
@@ -1398,13 +1414,25 @@ if(configOK) onAuthStateChanged(auth,u=>{
           <span style="color:var(--cinza)">Este e-mail não tem mais acesso ao sistema.
           Fale com o administrador se isso for engano.</span>`;
         signOut(auth);return;}
+      if(SEM_CADASTRO){
+        $("lMsg").innerHTML=`<b style="color:var(--nc)">🔒 Acesso ainda não liberado</b><br>
+          <span style="color:var(--cinza)">Este e-mail não tem cadastro no sistema.
+          Peça ao administrador para criar o seu acesso.</span>`;
+        signOut(auth);return;}
       escutar();});
     if(ISADMIN&&Date.now()-(+localStorage.getItem("lastBackup")||0)>30*864e5)
       setTimeout(()=>toast("💾 Lembrete: faça o backup mensal no Painel."),3500);
-    const venc=CAD.ext.filter(e=>diasAte(e.man2)<0||diasAte(e.man3)<0).length+CAD.hid.filter(h=>diasAte(h.man)<0||diasAte(h.th)<0).length;
-    if(venc)setTimeout(()=>toast(`⚠️ ${venc} equipamentos com manutenção vencida — veja a aba Vencimentos.`),1500);
-    prepNotif(venc);
+    /* o aviso de vencidos sai de avisoVencidos(), chamado por escutar() quando o
+       cadastro da nuvem chega. Contado aqui, ele usava o cadastro embutido no arquivo
+       (sem as trocas feitas depois) e ainda cobrava cilindro condenado. */
   }});
+let _avisouVenc=false;
+function avisoVencidos(){
+  if(_avisouVenc)return;_avisouVenc=true;
+  const venc=CAD.ext.filter(e=>!ehCondenado(e)&&(diasAte(e.man2)<0||diasAte(e.man3)<0)).length
+    +CAD.hid.filter(h=>diasAte(h.man)<0||diasAte(h.th)<0).length;
+  if(venc)setTimeout(()=>toast(`⚠️ ${venc} equipamentos com manutenção vencida — veja a aba Vencimentos.`),1500);
+  prepNotif(venc);}
 
 /* ---------- Notificação de vencimentos (melhor esforço; requer app instalado/Chrome) ---------- */
 async function prepNotif(qtd){
@@ -1427,11 +1455,19 @@ async function prepNotif(qtd){
 
 function pintaUInfo(){
   $("uInfo").innerHTML=`Inspetor: ${esc(NOME||auth.currentUser?.email||"")} <span style="text-decoration:underline;cursor:pointer;opacity:.8" onclick="mudarNome()">alterar</span> · <span style="text-decoration:underline;cursor:pointer;opacity:.8" onclick="assinatura()">✍️ assinatura${ASSIN?" ✓":""}</span>`;}
+let SEM_CADASTRO=false;
 async function carregarNome(u){
+  SEM_CADASTRO=false;
   try{const snap=await getDoc(doc(db,"usuarios",u.uid));
     NOME=snap.exists()?(snap.data().nome||""):"";ASSIN=snap.exists()?(snap.data().assin||""):"";
-    PERFIL=snap.exists()?(snap.data().perfil||"inspetor"):"inspetor";}
+    PERFIL=snap.exists()?(snap.data().perfil||"inspetor"):"inspetor";
+    /* Conta sem cadastro em "usuarios" (so o admin cria o cadastro). As regras do
+       Firestore recusam essa conta; sem este aviso o app pedia o nome e enchia a tela
+       de "Falha ao ler". Resposta do cache nao conta: sem sinal, nao da para saber. */
+    SEM_CADASTRO=!snap.exists()&&!snap.metadata.fromCache
+      &&!ADMIN_EMAILS.includes(String(u.email||"").toLowerCase());}
   catch(e){NOME="";ASSIN="";PERFIL="inspetor";}
+  if(SEM_CADASTRO)return;
   recalcAdmin();
   /* carimba a entrada — vira a coluna "último acesso" na tela de usuários */
   if(!BLOQUEADO){try{setDoc(doc(db,"usuarios",u.uid),
@@ -1585,9 +1621,9 @@ function pedeConfirmacao(d){return new Promise(res=>{
   $("dlgBody").innerHTML=`
     <h3 style="color:var(--warn)">⚠️ Divergência com o padrão cadastrado</h3>
     <div class="divergBox">
-      ${d.dAg?`Agente padrão: <b>${EQ.agp}</b> → informado: <b>${d.tl}</b><br>`:""}
-      ${d.dCg?`Carga padrão: <b>${EQ.cgp}</b> → informada: <b>${d.cl}</b><br>`:""}
-      <br>O agente e/ou o peso informados <b>divergem do cadastrado como padrão</b> para este extintor (Nº ${EQ.num??EQ.seq}).
+      ${d.dAg?`Agente padrão: <b>${esc(EQ.agp)}</b> → informado: <b>${esc(d.tl)}</b><br>`:""}
+      ${d.dCg?`Carga padrão: <b>${esc(EQ.cgp)}</b> → informada: <b>${esc(d.cl)}</b><br>`:""}
+      <br>O agente e/ou o peso informados <b>divergem do cadastrado como padrão</b> para este extintor (Nº ${esc(String(EQ.num??EQ.seq))}).
     </div>
     <label>Compreendo a divergência e este equipamento será colocado no lugar do padrão</label>
     <select id="dvOk"><option>Não</option><option>Sim</option></select>
@@ -1620,7 +1656,7 @@ window.salvar=async()=>{
   if($("fFoto2").files[0]&&!validaImagem($("fFoto2").files[0]))return;
   if(ehNC&&!$("fObs").value.trim())return toast("Descreva a não conformidade no campo de observação.");
   /* Duplicidade no mês: avisa antes de gravar um segundo registro do mesmo equipamento */
-  const mesAtual=new Date().toISOString().slice(0,7);
+  const mesAtual=dataLocal().slice(0,7);
   const jaTem=ITENS.find(i=>i.mes===mesAtual&&i.tipo===TIPO&&String(i.eqSeq??i.eqPat)===String(TIPO==="ext"?EQ.seq:EQ.pat));
   if(jaTem&&!confirm(`Este equipamento já foi inspecionado em ${fmtBR(jaTem.data)} por ${jaTem.inspetor||"—"}.\n\nGravar mesmo assim uma segunda inspeção neste mês?`))return;
   let diverg=null,divergAceita="";
@@ -1637,7 +1673,7 @@ window.salvar=async()=>{
     const carimbo=linhasCarimbo(EQ,TIPO,new Date());
     if($("fFoto1").files[0])foto1=await comprimir($("fFoto1").files[0],1000,.6,carimbo);
     if($("fFoto2").files[0])foto2=await comprimir($("fFoto2").files[0],1000,.6,carimbo);
-    const hoje=new Date().toISOString().slice(0,10);
+    const hoje=dataLocal();
     const base={tipo:TIPO,data:hoje,mes:hoje.slice(0,7),
       obs:$("fObs").value,conformidade:confAuto(),temFoto:!!(foto1||foto2),
       divergencia:!!diverg,divergAceita,diverg:diverg||null,
@@ -1683,6 +1719,56 @@ window.salvar=async()=>{
 
 /* ---------- Lista ---------- */
 let OVR={},MOVS=[],CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[]};
+/* ---------- Gravacao do cadastroCustom so com o que mudou ----------
+   O documento era regravado INTEIRO com o CADX deste aparelho. Se outro admin tinha
+   mexido no cadastro nesse meio tempo (ou este aparelho estava sem sinal e com a tela
+   velha), o trabalho dele era desfeito sem aviso — a mesma armadilha ja corrigida no
+   cadastroExt. Agora compara o CADX com a ultima leitura do servidor (CADX_SRV) e sobe
+   so a diferenca: chave por chave nos mapas (extEdit/hidEdit) e item por item nas
+   listas (extAdd/extDel...), com arrayUnion/arrayRemove, que o servidor aplica por
+   cima do que estiver la. */
+let CADX_SRV=null;
+const _ehMapa=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+const _estavel=v=>JSON.stringify(v,(k,x)=>_ehMapa(x)?Object.keys(x).sort().reduce((o,c)=>(o[c]=x[c],o),{}):x);
+/* devolve ate 3 gravacoes {dados,campos}. campos = lista -> grava com mergeFields
+   (substitui exatamente aquelas chaves); campos = null -> grava com merge:true.
+   arrayUnion/arrayRemove NAO podem ir com mergeFields: o campo listado e zerado antes
+   de aplicar, e o item que outro admin acrescentou some (visto no teste com emulador).
+   E remover e acrescentar no mesmo campo nao cabem na mesma gravacao. */
+function difCADX(srv,loc,fv){
+  srv=srv||{};loc=loc||{};
+  const d1={},c1=[],dR={},dU={};
+  for(const k of new Set([...Object.keys(srv),...Object.keys(loc)])){
+    const a=srv[k],b=loc[k];
+    if((a===undefined||_ehMapa(a))&&(b===undefined||_ehMapa(b))&&(a!==undefined||b!==undefined)){
+      for(const s of new Set([...Object.keys(a||{}),...Object.keys(b||{})])){
+        const va=a?.[s],vb=b?.[s];
+        if(vb===undefined){if(va===undefined)continue;(d1[k]=d1[k]||{})[s]=fv.del();c1.push(fv.path(k,s));}
+        else if(va===undefined||_estavel(va)!==_estavel(vb)){(d1[k]=d1[k]||{})[s]=vb;c1.push(fv.path(k,s));}}
+    }else if((a===undefined||Array.isArray(a))&&(b===undefined||Array.isArray(b))){
+      const ka=(a||[]).map(_estavel),kb=(b||[]).map(_estavel);
+      const sai=(a||[]).filter((x,i)=>!kb.includes(ka[i]));
+      const entra=(b||[]).filter((x,i)=>!ka.includes(kb[i]));
+      if(sai.length)dR[k]=fv.remove(sai);
+      if(entra.length)dU[k]=fv.union(entra);
+    }else if(_estavel(a)!==_estavel(b)){d1[k]=b===undefined?fv.del():b;c1.push(fv.path(k));}}
+  const ops=[];
+  if(c1.length)ops.push({dados:d1,campos:c1});
+  if(Object.keys(dR).length)ops.push({dados:dR,campos:null});
+  if(Object.keys(dU).length)ops.push({dados:dU,campos:null});
+  return ops;}
+const _FV={del:()=>deleteField(),union:l=>arrayUnion(...l),remove:l=>arrayRemove(...l),path:(...p)=>new FieldPath(...p)};
+/* sem lote: grava e devolve a promessa (para o comTimeout). Com lote: so enfileira.
+   Varias gravacoes vao num lote so: ou todas entram, ou nenhuma. */
+const _opcCADX=o=>o.campos?{mergeFields:o.campos}:{merge:true};
+function gravaCADX(lote){
+  const ref=doc(db,"config","cadastroCustom");
+  const ops=difCADX(CADX_SRV,CADX,_FV);
+  if(lote){ops.forEach(o=>lote.set(ref,o.dados,_opcCADX(o)));return lote;}
+  if(!ops.length)return Promise.resolve();
+  if(ops.length===1)return setDoc(ref,ops[0].dados,_opcCADX(ops[0]));
+  const b=writeBatch(db);ops.forEach(o=>b.set(ref,o.dados,_opcCADX(o)));
+  return b.commit();}
 function aplicaOvr(){
   /* extReset=true: o cadastro embutido foi substituído pelo da nuvem (após renumeração de locais) */
   CAD.ext=(CADX.extReset?[]:CAD0.ext.filter(e=>!CADX.extDel.map(String).includes(String(e.seq)))).map(e=>({...e}));
@@ -1717,6 +1803,19 @@ async function garanteMes(pm){
     MESES_CARREGADOS.add(pm);mesclaExtras();
   }catch(e){console.error("[mes "+pm+"]",e);
     toast("\u26a0\ufe0f N\u00e3o consegui carregar o m\u00eas "+pm+": "+(e.code||e.message));}}
+/* Traz do banco as inspecoes de um cilindro/equipamento que ficaram fora das 400
+   mais recentes, para o historico nao terminar de repente. O mesmo numero pode estar
+   gravado como texto ou como numero (cadastro antigo x digitado), por isso os dois. */
+async function garanteInspPor(campo,valores){
+  if(SNAP_OK&&!TRUNCADO)return true;
+  const vs=[...new Set(valores.filter(v=>v!==""&&v!=null&&!(typeof v==="number"&&isNaN(v))))].slice(0,10);
+  if(!vs.length)return true;
+  try{
+    const snap=await getDocs(query(collection(db,"inspecoes"),where(campo,"in",vs)));
+    const ids=new Set(EXTRA.map(i=>i.id));
+    snap.docs.forEach(d=>{if(!ids.has(d.id))EXTRA.push({id:d.id,...d.data()});});
+    mesclaExtras();return true;
+  }catch(e){console.error("[historico "+campo+"]",e);return false;}}
 function pintaFila(n){
   const e=$("filaOff");if(!e)return;
   e.textContent=n?"\ud83d\udcf4 "+n+" registro(s) aguardando envio":"";
@@ -1726,22 +1825,35 @@ function pintaFila(n){
    do modulo de condenados. */
 const erroLeitura=nome=>err=>{console.error("[leitura "+nome+"]",err);
   toast("\u26a0\ufe0f Falha ao ler "+nome+": "+(err.code||err.message));};
+/* guarda o "parar" de cada escuta: sem isto, sair e entrar de novo sem recarregar a
+   pagina duplicava todas elas, e depois do "Sair" cada uma disparava "Falha ao ler". */
+let _ESCUTAS=[];
+function pararEscutas(){_ESCUTAS.forEach(f=>{try{f();}catch(e){}});_ESCUTAS=[];}
 function escutar(){
+  pararEscutas();
+  const onSnapshot=(...a)=>{const f=_onSnapshot(...a);_ESCUTAS.push(f);return f;};
   onSnapshot(query(collection(db,"inspecoes"),orderBy("criadoEm","desc"),limit(LIMITE_INSP)),
     {includeMetadataChanges:true},snap=>{
       ITENS=snap.docs.map(d=>({id:d.id,...d.data()}));
       TRUNCADO=snap.size>=LIMITE_INSP;if(!snap.metadata.fromCache)SNAP_OK=true;
       pintaFila(snap.docs.filter(d=>d.metadata.hasPendingWrites).length);
       mesclaExtras();render();},erroLeitura("inspecoes"));
-  onSnapshot(doc(db,"config","cadastroExt"),s=>{OVR=s.exists()?(s.data().overrides||{}):{};aplicaOvr();},erroLeitura("cadastro"));
-  onSnapshot(doc(db,"config","cadastroCustom"),s=>{if(s.exists())CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[],...s.data()};aplicaOvr();},erroLeitura("cadastro custom"));
+  /* o aviso de vencidos espera o cadastro da nuvem e a lista de condenados chegarem */
+  const chegou=new Set(),marca=k=>{chegou.add(k);if(chegou.size===3)avisoVencidos();};
+  _avisouVenc=false;
+  onSnapshot(doc(db,"config","cadastroExt"),s=>{OVR=s.exists()?(s.data().overrides||{}):{};aplicaOvr();marca("ovr");},erroLeitura("cadastro"));
+  onSnapshot(doc(db,"config","cadastroCustom"),s=>{
+    /* copia separada: o CADX e alterado na memoria antes de gravar, a copia nao */
+    CADX_SRV=s.exists()?JSON.parse(JSON.stringify(s.data())):{};
+    if(s.exists())CADX={extEdit:{},hidEdit:{},extAdd:[],hidAdd:[],extDel:[],hidDel:[],...s.data()};aplicaOvr();marca("cadx");},erroLeitura("cadastro custom"));
   onSnapshot(doc(db,"config","admins"),s=>{ADMINS=s.exists()?(s.data().emails||[]):[];recalcAdmin();},erroLeitura("admins"));
   onSnapshot(query(collection(db,"movimentacoes"),orderBy("criadoEm","desc")),snap=>{
     MOVS=snap.docs.map(d=>({id:d.id,...d.data()}));renderMovs();},erroLeitura("movimenta\u00e7\u00f5es"));
   onSnapshot(query(collection(db,"condenacoes"),orderBy("criadoEm","desc")),snap=>{
     CONDS=snap.docs.map(d=>({id:d.id,...d.data()}));
     /* a condenação muda quem pode ser trocado, inspecionado e cobrado no vencimento */
-    try{renderCond();render();renderVenc();mostraPadrao();}catch(e){}},
+    try{renderCond();render();renderVenc();mostraPadrao();}catch(e){}
+    marca("cond");},
     err=>{console.error("[condenacoes] leitura falhou:",err);
       toast("\u26a0\ufe0f N\u00e3o consegui ler a lista de condenados: "+err.code);});}
 function renderMovs(){
@@ -1767,8 +1879,8 @@ window.abrirTroca=()=>{
   if(!reservas.length&&!outros.length)return toast("Nenhum outro extintor disponível.");
   $("dlgBody").innerHTML=`
     <h3>🔁 Substituição por reserva</h3>
-    <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Sai para recarga: <b>Nº ${EQ.num??"—"} (${EQ.tipo||EQ.agp||""} ${EQ.carga??""})</b><br>
-    Posição: <b>Ext ${EQ.seq} — ${EQ.loc||""}</b> · padrão <b>${EQ.agp||"—"} ${EQ.cgp||""}</b></p>
+    <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Sai para recarga: <b>Nº ${esc(String(EQ.num??"—"))} (${esc(EQ.tipo||EQ.agp||"")} ${esc(String(EQ.carga??""))})</b><br>
+    Posição: <b>Ext ${esc(String(EQ.seq))} — ${esc(EQ.loc||"")}</b> · padrão <b>${esc(EQ.agp||"—")} ${esc(EQ.cgp||"")}</b></p>
     <label>Digite o nº do cilindro que entra</label>
     <div class="ac-wrap">
       <input id="trBusca" autocomplete="off" placeholder="ex.: 1234 — puxa as informações do cilindro" oninput="trFiltra()">
@@ -1776,8 +1888,8 @@ window.abrirTroca=()=>{
     </div>
     <label>Ou escolha na lista (reserva ou outro ponto)</label>
     <select id="trSel">
-      ${reservas.length?`<optgroup label="Reservas">${reservas.map(r=>`<option value="${r.seq}">Nº ${r.num} — ${r.tipo||""} ${r.carga??""} · fab. ${r.fab?fmtBR(r.fab):"—"}</option>`).join("")}</optgroup>`:""}
-      ${outros.length?`<optgroup label="Outros pontos (correção de cadastro — trocam de posição)">${outros.map(r=>`<option value="${r.seq}">Nº ${r.num} — ${r.tipo||""} ${r.carga??""} · Ext ${r.seq} · ${esc(String(r.loc||"").slice(0,38))}</option>`).join("")}</optgroup>`:""}
+      ${reservas.length?`<optgroup label="Reservas">${reservas.map(r=>`<option value="${esc(String(r.seq))}">Nº ${esc(String(r.num))} — ${esc(r.tipo||"")} ${esc(String(r.carga??""))} · fab. ${r.fab?esc(fmtBR(r.fab)):"—"}</option>`).join("")}</optgroup>`:""}
+      ${outros.length?`<optgroup label="Outros pontos (correção de cadastro — trocam de posição)">${outros.map(r=>`<option value="${esc(String(r.seq))}">Nº ${esc(String(r.num))} — ${esc(r.tipo||"")} ${esc(String(r.carga??""))} · Ext ${esc(String(r.seq))} · ${esc(String(r.loc||"").slice(0,38))}</option>`).join("")}</optgroup>`:""}
     </select>
     <button class="btn sec" style="margin-top:10px;padding:9px;font-size:13px" onclick="qrTroca()">📷 Ler QR do extintor que entra</button>
     <div id="trDiv"></div>
@@ -1855,6 +1967,7 @@ window.confirmaCorrecaoLocal=async()=>{
      esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
   ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
+  const _ovrAntesCL={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(ySeq)]:OVR[String(ySeq)]};
   {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false,seqSlot=null;
@@ -1862,6 +1975,9 @@ window.confirmaCorrecaoLocal=async()=>{
     const slot=CAD.ext.find(e=>isReserva(e)&&!e.num&&!emManutencao(e)&&!ehCondenado(e)&&String(e.seq)!==String(EQ.seq)&&String(e.seq)!==String(ySeq));
     if(slot){OVR[String(slot.seq)]=dX;seqSlot=slot.seq;}
     else{const seqNovaReserva=await proxSeqSeguro(true);
+      if(seqNovaReserva==null){  /* devolve as duas posicoes como estavam */
+        for(const k in _ovrAntesCL){if(_ovrAntesCL[k]===undefined)delete OVR[k];else OVR[k]=_ovrAntesCL[k];}
+        return;}
       CADX.extAdd.push({seq:seqNovaReserva,pat:null,agp:null,cgp:null,loc:"Reserva",...dX,criado:dataHoje()});novaReserva=true;}
   }
   /* {merge:true} NAO basta: com o mapa OVR inteiro no corpo, as 357 posicoes sao
@@ -1871,8 +1987,8 @@ window.confirmaCorrecaoLocal=async()=>{
   [EQ.seq,ySeq].concat(seqSlot!=null?[seqSlot]:[]).forEach(sq=>{_patch[String(sq)]=OVR[String(sq)];});
   try{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
-    const okCadx=novaReserva?await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)):true;
-    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okCadx=novaReserva?await comTimeout(gravaCADX()):true;
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataLocal(),
       /* o registro de movimentacao tambem afirmava que a troca aconteceu mesmo quando
          o cadastro nao confirmou — agora ele carrega o resultado junto */
       cadastroConfirmado:okCad,
@@ -1925,7 +2041,7 @@ window.trDiverg=()=>{
   const cgR=(r.carga!=null&&String(r.carga).trim()!=="")?String(r.carga):(r.cgp||"");
   const dAg=EQ.agp&&r.tipo&&normAg(r.tipo)!==normAg(EQ.agp);
   const dCg=EQ.cgp&&cgR&&normCg(cgR)!==normCg(EQ.cgp);
-  $("trDiv").innerHTML=(dAg||dCg)?`<div class="divergBox">⚠️ O reserva selecionado (<b>${r.tipo||""} ${cgR}</b>) diverge do padrão desta posição (<b>${EQ.agp} ${EQ.cgp}</b>).
+  $("trDiv").innerHTML=(dAg||dCg)?`<div class="divergBox">⚠️ O reserva selecionado (<b>${esc(r.tipo||"")} ${esc(cgR)}</b>) diverge do padrão desta posição (<b>${esc(EQ.agp||"")} ${esc(EQ.cgp||"")}</b>).
     <label>Compreendo a divergência e este será colocado no lugar</label>
     <select id="trOk"><option>Não</option><option>Sim</option></select></div>`:"";};
 window.confirmaTroca=async()=>{
@@ -1942,7 +2058,7 @@ window.confirmaTroca=async()=>{
      fica marcado como em manutenção até alguém registrar o retorno.
      Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
   OVR[String(r.seq)]=eraReserva
-    ?{...doEQ,manut:true,manutDesde:new Date().toISOString().slice(0,10),manutDe:EQ.seq,manutLoc:EQ.loc||""}
+    ?{...doEQ,manut:true,manutDesde:dataLocal(),manutDe:EQ.seq,manutLoc:EQ.loc||""}
     /* troca entre dois pontos fixos: ninguem foi para recarga. Sem estes nulos o merge
        manteria uma marcacao de manutencao antiga que ficou no servidor. */
     :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null};
@@ -1951,11 +2067,12 @@ window.confirmaTroca=async()=>{
   const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
   try{
     const okCad=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:_patch},{merge:true}));
-    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:new Date().toISOString().slice(0,10),
+    const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataLocal(),
       cadastroConfirmado:okCad,
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
       divergencia:!!ok,divergAceita:ok?ok.value:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
+    audit(eraReserva?"troca_por_reserva":"troca_entre_locais",{local:EQ.seq,saiu:doEQ.num,entrou:doR.num,deOnde:r.seq},okCad&&okMov);
     aplicaOvr();
     $("dlg").close();
     $("fBusca").value=labelEq(EQ);mostraPadrao();
@@ -1968,7 +2085,7 @@ window.confirmaTroca=async()=>{
    normalmente só mudam quando a mangueira é trocada por causa do teste. */
 window.testeHidrostatico=()=>{
   if(!EQ||TIPO!=="hid"||!ISADMIN)return;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=dataLocal();
   $("dlgBody").innerHTML=`<h3>🚿 Registrar teste hidrostático</h3>
     <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Hidrante <b>${esc(String(EQ.pat))}</b> — ${esc(String(EQ.loc||""))}<br>
       Mangueira atual: <b>${esc(String(EQ.fabricante||"—"))}</b>, fabricação <b>${esc(String(EQ.fab??"—"))}</b></p>
@@ -1990,7 +2107,7 @@ window.confirmaTesteHidrostatico=async()=>{
   const fabricante=$("thFabricante").value.trim();
   const fab=+$("thFab").value||null;
   const th=$("thProx").value||null;
-  const dt=$("thData").value||new Date().toISOString().slice(0,10);
+  const dt=$("thData").value||dataLocal();
   if(!fabricante||!fab||!th)return toast("Preencha marca da mangueira, ano de fabricação e a próxima data.");
   const pat=String(EQ.pat);
   CADX.hidEdit[pat]={tipo:EQ.tipo||null,cap:EQ.cap||null,loc:EQ.loc||null,
@@ -2008,7 +2125,7 @@ const somaAnos=(iso,n)=>{
   return d.toISOString().slice(0,10);};
 window.voltouRecarga=()=>{
   if(!EQ||TIPO!=="ext"||!emManutencao(EQ))return;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=dataLocal();
   $("dlgBody").innerHTML=`<h3>🔧 Registrar retorno da recarga</h3>
     <p style="font-size:13.5px;margin-top:8px;line-height:1.7">Cilindro <b>Nº ${esc(String(EQ.num??"—"))}</b>
       (${esc(String(EQ.tipo||EQ.agp||"—"))} ${esc(String(EQ.carga??EQ.cgp??""))})<br>
@@ -2028,7 +2145,7 @@ window.confirmaRetornoRecarga=async()=>{
   if(!podeGravar())return;
   if(!EQ||!emManutencao(EQ)){$("dlg").close();return toast("A tela foi atualizada em segundo plano. Abra o cilindro de novo.");}
   const seq=String(EQ.seq),num=EQ.num;
-  const dt=$("rcData").value||new Date().toISOString().slice(0,10);
+  const dt=$("rcData").value||dataLocal();
   const m2=$("rcM2").value||null,m3=$("rcM3").value||null;
   const anterior={...(OVR[seq]||{})};
   const novo={...anterior};
@@ -2156,7 +2273,7 @@ window.exportEquipXLSX=async()=>{
   const cols=ext
     ?["Local","Nº do cilindro","Agente extintor","Carga","Fabricante","Data de fabricação","Última inspeção","Próx. Man. 2º Nível","Próx. Man. 3º Nível","Situação"]
     :["ID","Patrimônio","Tipo","Capacidade","Fabricante","Data de fabricação","Última inspeção","Próx. Manutenção","Próx. T. Hidrostático","Situação"];
-  cabecalho(ws,`Lista de Equipamentos — ${ext?"Extintores":"Hidrantes"}  `,cols.length,new Date().toISOString().slice(0,7),hoje);
+  cabecalho(ws,`Lista de Equipamentos — ${ext?"Extintores":"Hidrantes"}  `,cols.length,dataLocal().slice(0,7),hoje);
   cols.forEach((c,i)=>{const cell=ws.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
   ws.getRow(7).height=30;
   setWidths(ws,{A:16,B:16,C:16,D:12,E:18,F:16,G:14,H:16,I:16,J:16});
@@ -2180,7 +2297,7 @@ window.exportEquipXLSX=async()=>{
       if(cn===10&&l.sit.k==="manut")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE9D5FF"}};});
     r++;}
   ws.autoFilter={from:{row:9,column:1},to:{row:9,column:cols.length}};
-  await baixaXLSX(wb,`Lista_${ext?"Extintores":"Hidrantes"}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await baixaXLSX(wb,`Lista_${ext?"Extintores":"Hidrantes"}_${dataLocal()}.xlsx`);
   toast("✅ Planilha gerada!");};
 
 let LIST_N=30;
@@ -2257,7 +2374,7 @@ window.render=()=>{
         ${cd?`<span class="badge b-cond">⛔ CONDENADO</span>`:""}
         ${sitHora==="engex"?`<span class="badge b-engex">🏢 ENGEX</span>`:""}
         ${sitHora==="manut"?`<span class="badge b-manut">🔧 MANUTENÇÃO</span>`:""}
-        <h3 style="margin-top:6px">${id}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${i.eqSeq}`:""} · ${esc(i.eqLoc||"—")}</h3>
+        <h3 style="margin-top:6px">${esc(String(id??"—"))}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${esc(String(i.eqSeq))}`:""} · ${esc(i.eqLoc||"—")}</h3>
         ${i.tipo==="ext"&&(i.tipoLocal||i.cargaLocal)?`<p style="font-size:12.5px;color:var(--vinho);font-weight:700">${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</p>`:""}
         <p>${esc(i.obs||"Sem observações.")}</p>
         <div class="meta">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
@@ -2283,15 +2400,20 @@ window.render=()=>{
   const extRota=CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e)&&jaExistiaEm(e,pm));
   const hidRota=CAD.hid.filter(h=>jaExistiaEm(h,pm));
   const tot=extRota.length+hidRota.length;
-  $("kInsp").textContent=inspEq.size;
-  $("kPend").textContent=Math.max(0,tot-inspEq.size);
+  /* so os pontos DA ROTA contam como inspecionados: inspecao de ponto que saiu da rota
+     (condenado, em manutencao, removido) escondia uma pendencia de verdade e o
+     percentual podia passar de 100% — ver a mesma conta no laudo */
+  const inspRota=extRota.filter(e=>inspEq.has("ext_"+e.seq)).length
+    +hidRota.filter(h=>inspEq.has("hid_"+h.seq)).length;
+  $("kInsp").textContent=inspRota;
+  $("kPend").textContent=Math.max(0,tot-inspRota);
   $("kNC").textContent=mesArr.filter(i=>i.conformidade==="NC").length;
   $("kDiv").textContent=mesArr.filter(i=>i.divergencia).length;
   const pendExt=[],pendHid=[];
   extRota.forEach(e=>{if(!inspEq.has("ext_"+e.seq))pendExt.push({t:"ext",id:e.seq,lb:isReserva(e)?`🧯 Reserva (Nº ${e.num??"—"})`:`🧯 Ext ${e.seq} (Nº ${e.num??"—"})`,loc:e.loc||"Sem área"});});
   hidRota.forEach(h=>{if(!inspEq.has("hid_"+h.seq))pendHid.push({t:"hid",id:h.pat,lb:`🚒 ${h.pat}`,loc:h.loc||"Sem área"});});
   const pendTotal=pendExt.length+pendHid.length;
-  const pct=tot?Math.round(100*inspEq.size/tot):0;
+  const pct=tot?Math.round(100*inspRota/tot):0;
   const blocoRota=(lista,rotulo)=>{
     if(!lista.length)return `<p style="font-size:12.5px;color:var(--ok);margin:6px 0 2px">✅ Todos os ${rotulo} inspecionados!</p>`;
     const areas={};lista.forEach(p=>{const a=normRota(p.loc);(areas[a]=areas[a]||[]).push(p);});
@@ -2377,7 +2499,7 @@ window.render=()=>{
   }
   $("pendBox").innerHTML=`<b>🗺️ Rota de inspeção — ${pm.split("-").reverse().join("/")}</b>
     <div style="background:#eee;border-radius:8px;height:14px;margin:10px 0;overflow:hidden"><div style="background:linear-gradient(90deg,#16a34a,#65a30d);height:100%;width:${pct}%"></div></div>
-    <div style="font-size:12px;color:var(--cinza);margin-bottom:10px">${inspEq.size}/${tot} inspecionados (${pct}%) · ${pendTotal} pendentes — toque na área e no item para inspecionar</div>
+    <div style="font-size:12px;color:var(--cinza);margin-bottom:10px">${inspRota}/${tot} inspecionados (${pct}%) · ${pendTotal} pendentes — toque na área e no item para inspecionar</div>
     <b style="font-size:13.5px;color:var(--vinho)">🧯 Extintores — ${pendExt.length} pendentes</b>
     ${blocoRota(pendExt,"extintores")}
     <b style="font-size:13.5px;color:#1d4ed8;display:block;margin-top:16px">🚒 Hidrantes — ${pendHid.length} pendentes</b>
@@ -2398,7 +2520,7 @@ window.irPara=(t,id)=>{
 function desenhaGraficos(){
   const g1=$("graf1"),g2=$("graf2");if(!g1)return;
   const meses=[];const d=new Date();
-  for(let i=5;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1);meses.push(m.toISOString().slice(0,7));}
+  for(let i=5;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1);meses.push(dataLocal(m).slice(0,7));}
   g1.innerHTML="<b>📈 Conformidade por mês</b><br>"+meses.map(m=>{
     const arr=ITENS.filter(i=>i.mes===m);const nc=arr.filter(i=>i.conformidade==="NC").length;
     const pc=arr.length?Math.round(100*(arr.length-nc)/arr.length):0;
@@ -2413,7 +2535,15 @@ function desenhaGraficos(){
     :`<p style="font-size:13px;color:var(--cinza);margin-top:8px">Nenhuma não conformidade registrada até agora.</p>`);}
 
 /* ---------- Vencimentos ---------- */
-function diasAte(d){if(!d)return null;return Math.round((new Date(d)-new Date())/864e5);}
+/* Dias ate a data (AAAA-MM-DD), contados em dias do calendario de Brasilia.
+   new Date("2026-09-29") e meia-noite de Londres = 21h do dia 28 aqui: o equipamento
+   aparecia "vencido ha 1d" ja na manha do proprio dia do vencimento. Vence no fim
+   do dia informado: no dia, 0; no dia seguinte, -1. */
+function diasAte(d){if(!d)return null;
+  const m=String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const alvo=m?new Date(+m[1],+m[2]-1,+m[3]):new Date(d);if(isNaN(alvo))return null;
+  const h=new Date(),hoje=new Date(h.getFullYear(),h.getMonth(),h.getDate());
+  return Math.round((alvo-hoje)/864e5);}
 function badgeVenc(dias){
   if(dias===null)return "";
   if(dias<0)return `<span class="badge" style="background:var(--nc)">vencido há ${-dias}d</span>`;
@@ -2477,7 +2607,7 @@ window.renderVenc=()=>{
   if(!fA&&fG!=="res")CAD.hid.forEach(h=>{
     [["Manutenção",h.man],["T. Hidrostático",h.th]].forEach(([rot,dt])=>{
       const dd=diasAte(dt);if(!passa(dd,dt))return;
-      lh.push({d:dd,h:`<div class="venc"><span>🚒 ${h.pat} · ${rot} ${fmtBR(dt)}<br><small style="color:var(--cinza)">${h.loc||""}</small></span>${badgeVenc(dd)}</div>`});});});
+      lh.push({d:dd,h:`<div class="venc"><span>🚒 ${esc(String(h.pat))} · ${rot} ${fmtBR(dt)}<br><small style="color:var(--cinza)">${esc(h.loc||"")}</small></span>${badgeVenc(dd)}</div>`});});});
   lh.sort((a,b)=>a.d-b.d);
   $("vencHid").innerHTML=fA?`<b>🚒 Hidrantes</b><p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Ocultos: o filtro de agente vale só para extintores. Volte o agente para "todos" para vê-los.</p>`
     :fG==="res"?`<b>🚒 Hidrantes</b><p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Ocultos pelo filtro "Só reserva".</p>`
@@ -2535,7 +2665,9 @@ window.renderCond=()=>{
 
 /* ================= Histórico completo de um cilindro =================
    Junta inspeções, substituições e a condenação em uma linha do tempo só. */
-window.historicoCilindro=num=>{
+window.historicoCilindro=async num=>{
+  const completo=await garanteInspPor("eqNum",[String(num).trim(),Number(num)]);
+  if(!completo)toast("⚠️ Sem conexão: o histórico mostra só as inspeções mais recentes.");
   const k=chaveCil(num);
   const cd=condDe(num),cdAll=CONDS.filter(c=>chaveCil(c.num)===k);
   const eq=CAD.ext.find(e=>chaveCil(e.num)===k)||null;
@@ -2556,7 +2688,7 @@ window.historicoCilindro=num=>{
     ev.push({d:c.data,cor:"var(--cd)",t:`⛔ Condenado — ${esc(c.motivoTexto||c.motivo||"")}`,
       s:`${fmtBR(c.data)} · Relatório ${esc(c.relatorio||"—")} · ${esc(c.registradoPor||"—")}`
         +(c.obs?`<br>${esc(c.obs)}`:"")});
-    if(c.ativo===false)ev.push({d:new Date(c.desfeitoEm||Date.now()).toISOString().slice(0,10),
+    if(c.ativo===false)ev.push({d:dataLocal(c.desfeitoEm||Date.now()),
       cor:"var(--cinza2)",t:"↩️ Condenação desfeita",
       s:`${esc(c.desfeitoPor||"—")}`});});
   ev.sort((a,b)=>String(b.d||"").localeCompare(String(a.d||"")));
@@ -2596,7 +2728,7 @@ window.exportCondenados=async()=>{
   const hoje=new Date().toLocaleDateString("pt-BR");
   const COLS=["Nº do cilindro","Agente","Carga","Fabricação","Posição de origem","Era reserva",
               "Motivo","Detalhe do motivo","Data da condenação","Nº do relatório","Observação","Registrado por"];
-  cabecalho(ws,"RELATÓRIO DE CILINDROS CONDENADOS",COLS.length,fA?`${fA}-01`:new Date().toISOString().slice(0,7),hoje);
+  cabecalho(ws,"RELATÓRIO DE CILINDROS CONDENADOS",COLS.length,fA?`${fA}-01`:dataLocal().slice(0,7),hoje);
   const rh=ws.getRow(10);
   COLS.forEach((c,i)=>{rh.getCell(i+1).value=c;headerCell(rh.getCell(i+1),false);});
   rh.height=30;
@@ -2607,7 +2739,7 @@ window.exportCondenados=async()=>{
      fmtBR(c.data),String(c.relatorio||""),String(c.obs||""),String(c.registradoPor||"")]
       .forEach((v,i)=>{r.getCell(i+1).value=v;dataCell(r.getCell(i+1),false,false);});});
   setWidths(ws,{1:14,2:10,3:10,4:12,5:34,6:11,7:30,8:28,9:16,10:20,11:34,12:22});
-  await baixaXLSX(wb,`Condenados_${fA||"todos"}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await baixaXLSX(wb,`Condenados_${fA||"todos"}_${dataLocal()}.xlsx`);
   toast(`⬇️ ${arr.length} cilindro(s) exportado(s).`);};
 
 /* ---------- Detalhe ---------- */
@@ -2617,17 +2749,20 @@ window.abrir=async id=>{
   const cab=i.tipo==="ext"?`Extintor Nº ${i.eqNum??i.eqSeq}`:`Hidrante ${i.eqPat}`;
   let detalhe="";
   if(i.tipo==="ext"){
-    detalhe=`<p style="font-size:13.5px"><b>Tipo no local:</b> ${i.tipoLocal||"—"} · <b>Carga no local:</b> ${i.cargaLocal||"—"}</p>`;
-    if(i.divergencia&&i.diverg)detalhe+=`<div class="divergBox">⚠️ Divergência aceita (${i.divergAceita}): padrão ${i.diverg.agentePadrao} ${i.diverg.cargaPadrao} → colocado ${i.diverg.agenteInformado||i.diverg.agentePadrao} ${i.diverg.cargaInformada||i.diverg.cargaPadrao}</div>`;
-    detalhe+="<p style='font-size:13.5px;margin-top:8px'><b>Checklist:</b><br>"+CHK_EXT.map(c=>`${c}: <b style="color:${i.checklist?.[c]==="NC"?"var(--nc)":"inherit"}">${i.checklist?.[c]||"—"}</b>`).join(" · ")+"</p>";}
-  else{const h=i.hid||{};
-    detalhe=`<p style="font-size:13.5px;line-height:1.8"><b>Storz:</b> ${h.storz||"—"} (qtd ${h.qtdStorz||"—"}) · <b>Esguichos:</b> ${h.esguichos||"—"} ${h.tipoEsguicho?`(${esc(h.tipoEsguicho)}, qtd ${h.qtdEsguichos||"—"})`:""}<br>
-    <b>Mangueiras:</b> ${h.mangueiras||"—"} (qtd ${h.qtdMangueiras||"—"}, lances ${h.lances||"—"}) · <b>Registro:</b> ${h.registro||"—"}<br>
-    <b>Sinalização de solo:</b> ${h.sinSolo||"—"} · <b>Sinalização aérea:</b> ${h.sinAerea||"—"} · <b>Abrigo lacrado:</b> ${h.abrigo||"—"}<br>
+    /* tudo que o inspetor digita passa por esc(): sem isso, um texto com codigo no
+       campo "carga no local" rodava na sessao do admin que abrisse o registro */
+    const e_=v=>esc(String(v??"—"));
+    detalhe=`<p style="font-size:13.5px"><b>Tipo no local:</b> ${e_(i.tipoLocal||"—")} · <b>Carga no local:</b> ${e_(i.cargaLocal||"—")}</p>`;
+    if(i.divergencia&&i.diverg)detalhe+=`<div class="divergBox">⚠️ Divergência aceita (${e_(i.divergAceita)}): padrão ${e_(i.diverg.agentePadrao)} ${e_(i.diverg.cargaPadrao)} → colocado ${e_(i.diverg.agenteInformado||i.diverg.agentePadrao)} ${e_(i.diverg.cargaInformada||i.diverg.cargaPadrao)}</div>`;
+    detalhe+="<p style='font-size:13.5px;margin-top:8px'><b>Checklist:</b><br>"+CHK_EXT.map(c=>`${c}: <b style="color:${i.checklist?.[c]==="NC"?"var(--nc)":"inherit"}">${e_(i.checklist?.[c]||"—")}</b>`).join(" · ")+"</p>";}
+  else{const h=i.hid||{},e_=v=>esc(String(v||"—"));
+    detalhe=`<p style="font-size:13.5px;line-height:1.8"><b>Storz:</b> ${e_(h.storz)} (qtd ${e_(h.qtdStorz)}) · <b>Esguichos:</b> ${e_(h.esguichos)} ${h.tipoEsguicho?`(${esc(h.tipoEsguicho)}, qtd ${e_(h.qtdEsguichos)})`:""}<br>
+    <b>Mangueiras:</b> ${e_(h.mangueiras)} (qtd ${e_(h.qtdMangueiras)}, lances ${e_(h.lances)}) · <b>Registro:</b> ${e_(h.registro)}<br>
+    <b>Sinalização de solo:</b> ${e_(h.sinSolo)} · <b>Sinalização aérea:</b> ${e_(h.sinAerea)} · <b>Abrigo lacrado:</b> ${e_(h.abrigo)}<br>
     ${h.outros?`<b>Outros:</b> ${esc(h.outros)}`:""}</p>`;}
   const F=await fotosDe(i);
   $("dlgBody").innerHTML=`
-    <span class="badge" style="background:${i.conformidade==="NC"?"var(--nc)":"var(--ok)"}">${i.conformidade}</span>
+    <span class="badge" style="background:${i.conformidade==="NC"?"var(--nc)":"var(--ok)"}">${esc(i.conformidade)}</span>
     <h3 style="margin:10px 0 4px">${esc(cab)} · ${esc(i.eqLoc||"—")}</h3>
     <p style="font-size:12px;color:var(--cinza)">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</p>
     ${detalhe}
@@ -2816,17 +2951,21 @@ window.salvaEdicaoInspecao=async id=>{
     }
     if((mexeuFoto||i.foto1||i.foto2)&&fAtu.erro){
       return toast("\u26a0\uFE0F N\u00e3o consegui carregar as fotos atuais. Salvar agora apagaria as que est\u00e3o no sistema. Tente de novo com sinal melhor.");}
+    let gravouFotoEd=true;
     if(mexeuFoto||i.foto1||i.foto2){
-      const gravouFoto=await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
+      gravouFotoEd=await comTimeout(setDoc(doc(db,"fotos",id),{foto1:fAtu.foto1||"",foto2:fAtu.foto2||"",criadoEm:Date.now()}));
       /* so limpa a foto do documento depois de confirmar que a copia foi gravada.
          Antes limpava sempre: se a copia falhasse, a foto sumia dos dois lugares. */
-      if(!gravouFoto)return toast("\u26a0\uFE0F A foto n\u00e3o p\u00f4de ser gravada agora. Nada foi alterado \u2014 tente com sinal melhor.");
+      /* gravouFoto=false e "passou do prazo": a foto ja esta na fila e sobe antes da
+         correcao abaixo (o aparelho envia na ordem). Antes o app parava aqui dizendo
+         "nada foi alterado", mas a foto subia depois sozinha e o resto da correcao
+         (checklist, obs) se perdia. Recusa de verdade cai no catch. */
       patch.foto1="";patch.foto2="";patch.temFoto=!!(fAtu.foto1||fAtu.foto2);
       CACHE_FOTOS.set(id,{foto1:fAtu.foto1||"",foto2:fAtu.foto2||""});
     }
     const okEd=await comTimeout(updateDoc(doc(db,"inspecoes",id),patch));
     audit("editar_inspecao",{id,tipo:i.tipo,...(reatrib?{reatribuido:reatrib}:{})},okEd);
-    $("dlg").close();avisaGravacao(okEd,"✅ Inspeção corrigida!");
+    $("dlg").close();avisaGravacao(okEd&&gravouFotoEd,"✅ Inspeção corrigida!");
   }catch(e){toast("Erro ao salvar: "+e.message);}};
 window.excluir=async id=>{
   if(!ISADMIN)return toast("Apenas o administrador pode excluir registros.");
@@ -2864,16 +3003,30 @@ window.salvaInspetor=async()=>{
   const nome=$("uNome").value.trim(),email=$("uEmail").value.trim(),senha=$("uSenha").value;
   const perfil=$("uPerfil")?$("uPerfil").value:"inspetor";
   if(!email||senha.length<6)return toast("Informe e-mail e senha com 6+ caracteres.");
+  /* O login do Firebase nao tem copia de teste: no ambiente de teste a conta seria
+     criada DE VERDADE, mas o perfil iria para teste_usuarios — na producao a pessoa
+     entraria como inspetor com permissao de gravar, qualquer que fosse o perfil. */
+  if(MODO_TESTE)return toast("Ambiente de teste: criar acesso cria uma conta real. Crie o usuário no app de produção.");
   const btn=event.target;btn.disabled=true;btn.textContent="Criando…";
+  let app2=null;
   try{
-    const app2=initializeApp(firebaseConfig,"criaUsuario"+Date.now());
+    app2=initializeApp(firebaseConfig,"criaUsuario"+Date.now());
     const auth2=getAuth(app2);
     const cred=await createUserWithEmailAndPassword(auth2,email,senha);
-    try{await setDoc(doc(db,"usuarios",cred.user.uid),{nome,email,perfil});}catch(e){}
+    /* o perfil e o que diz se a conta e de teste (nao grava) ou inspetor/admin.
+       Antes a falha aqui era engolida e a conta ficava como inspetor sem ninguem saber. */
+    let okPerfil=false,erroPerfil="";
+    try{okPerfil=await comTimeout(setDoc(doc(db,"usuarios",cred.user.uid),{nome,email,perfil}),8000);}
+    catch(e){erroPerfil=e.code||e.message;console.error("[perfil do novo usuario]",e);}
     await signOut(auth2);
-    audit("novo_usuario",{email,nome,perfil});
-    $("dlg").close();toast(`✅ Acesso criado como ${PERFIS[perfil]} — já pode entrar no app!`);
+    audit("novo_usuario",{email,nome,perfil},okPerfil);
+    $("dlg").close();
+    if(okPerfil)toast(`✅ Acesso criado como ${PERFIS[perfil]} — já pode entrar no app!`);
+    else alert(`⚠️ A conta ${email} foi criada, mas o PERFIL (${PERFIS[perfil]}) não foi confirmado no sistema`
+      +(erroPerfil?` (${erroPerfil})`:"")+`.\n\nAbra "👥 Usuários e perfis" e confira o perfil dessa pessoa antes de ela entrar — `
+      +`sem o perfil ela entra como Inspetor, com permissão de gravar.`);
   }catch(e){toast("Erro: "+(e.code==="auth/email-already-in-use"?"este e-mail já tem acesso.":e.message));}
+  if(app2)try{await deleteApp(app2);}catch(e){}
   btn.disabled=false;btn.textContent="Criar acesso";};
 /* ---------- Usuários e perfis ---------- */
 let USERS=[];
@@ -2993,6 +3146,7 @@ window.renomearUsuario=async uid=>{
 window.resetSenha=async uid=>{
   if(!ISADMIN)return;
   const u=USERS.find(x=>x.uid===uid);if(!u||!u.email)return toast("Usuário sem e-mail cadastrado.");
+  if(MODO_TESTE)return toast("Ambiente de teste: o e-mail de senha seria enviado de verdade. Use o app de produção.");
   if(!confirm(`Enviar e-mail de redefinição de senha para ${u.email}?`))return;
   try{
     await sendPasswordResetEmail(auth,u.email);
@@ -3196,11 +3350,16 @@ window.laudoPDF=async()=>{
     +CAD.hid.filter(h=>!jaExistiaEm(h,pm)).length;
   const totPontos=extRota.length+hidRota.length;
   const inspSet=new Set(mes.map(i=>i.tipo+"_"+(i.eqSeq??i.eqPat)));
+  /* Inspecionados = pontos DA ROTA que tem inspecao. Contar o conjunto inteiro somava
+     pontos que sairam da rota (condenado, em manutencao, removido): a cobertura podia
+     passar de 100% e o numero de pendencias ficava menor que a lista da secao 5. */
+  const inspRota=extRota.filter(e=>inspSet.has("ext_"+e.seq)).length
+    +hidRota.filter(h=>inspSet.has("hid_"+h.seq)).length;
   const nc=atual.filter(i=>i.conformidade==="NC");
   const div=atual.filter(i=>i.divergencia);
   const condMes=CONDS.filter(c=>c.ativo!==false&&String(c.mes||String(c.data||"").slice(0,7))===pm)
     .sort((a,b)=>String(a.data||"").localeCompare(String(b.data||"")));
-  const cobertura=totPontos?Math.round(100*inspSet.size/totPontos):0;
+  const cobertura=totPontos?Math.round(100*inspRota/totPontos):0;
   const confPct=atual.length?Math.round(100*(atual.length-nc.length)/atual.length):0;
 
   /* assinaturas dos inspetores do mês */
@@ -3221,13 +3380,13 @@ window.laudoPDF=async()=>{
 
   /* vencimentos */
   const vInst=[],vRes=[];
-  CAD.ext.filter(e=>jaExistiaEm(e,pm)).forEach(e=>{[["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([r,d])=>{
+  CAD.ext.filter(e=>jaExistiaEm(e,pm)&&!ehCondenado(e)).forEach(e=>{[["2º Nível",e.man2],["3º Nível",e.man3]].forEach(([r,d])=>{
     const dd=diasAte(d);if(dd!==null&&dd<=90)(isReserva(e)?vRes:vInst).push({q:isReserva(e)?`Reserva Nº ${e.num??"—"}`:`Ext ${e.seq} (Nº ${e.num??"—"})`,r,d,dd,loc:isReserva(e)?"Pool de reserva":(e.loc||"")});});});
   hidRota.forEach(h=>{[["Manutenção",h.man],["T. Hidrostático",h.th]].forEach(([r,d])=>{
     const dd=diasAte(d);if(dd!==null&&dd<=90)vInst.push({q:`Hidrante ${h.pat}`,r,d,dd,loc:h.loc||""});});});
   vInst.sort((a,b)=>a.dd-b.dd);vRes.sort((a,b)=>a.dd-b.dd);
 
-  const linhaExt=i=>`<tr><td>${i.eqSeq??"—"}</td><td>${esc(String(i.eqNum??"—"))}</td><td>${esc(i.eqLoc||"—")}</td>
+  const linhaExt=i=>`<tr><td>${esc(String(i.eqSeq??"—"))}</td><td>${esc(String(i.eqNum??"—"))}</td><td>${esc(i.eqLoc||"—")}</td>
     <td>${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</td>
     <td class="${i.conformidade==="NC"?"nc":"ok"}">${i.conformidade||"—"}</td>
     <td>${i.divergencia?"Sim":"—"}</td><td>${fmtBR(i.data)}</td><td>${esc(i.inspetor||"")}</td></tr>`;
@@ -3288,7 +3447,7 @@ window.laudoPDF=async()=>{
   <h2>1. Resumo do período</h2>
   <div class="kpis">
     <div class="k"><b>${totPontos}</b><span>Pontos</span></div>
-    <div class="k"><b>${inspSet.size}</b><span>Inspecionados</span></div>
+    <div class="k"><b>${inspRota}</b><span>Inspecionados</span></div>
     <div class="k"><b>${cobertura}%</b><span>Cobertura</span></div>
     <div class="k"><b>${confPct}%</b><span>Conformidade</span></div>
     <div class="k"><b>${nc.length}</b><span>Não conformes</span></div>
@@ -3314,7 +3473,7 @@ window.laudoPDF=async()=>{
       ${(()=>{const F=FNC.get(i.id)||{};return (F.foto1||F.foto2)?`<div class="fotos">${F.foto1?`<img src="${F.foto1}">`:""}${F.foto2?`<img src="${F.foto2}">`:""}</div>`:"";})()}
     </div>`).join(""):`<p class="vazio">Nenhuma não conformidade registrada no período.</p>`}
 
-  <h2>5. Pendências do período (${totPontos-inspSet.size})</h2>
+  <h2>5. Pendências do período (${totPontos-inspRota})</h2>
   ${criadosDepois?`<p class="nota">${criadosDepois} equipamento(s) cadastrado(s) depois deste período não entram na rota nem nas pendências — passam a ser cobrados a partir do mês em que foram cadastrados.</p>`:""}
   ${(()=>{const rr=extRota.filter(e=>isReserva(e)),rp=rr.filter(e=>!inspSet.has("ext_"+e.seq));
     if(!rp.length)return "";
@@ -3364,13 +3523,37 @@ window.laudoPDF=async()=>{
   toast("📄 Laudo gerado — na janela de impressão escolha \"Salvar como PDF\".");};
 
 /* ---------- Backup ---------- */
-window.backupJSON=()=>{
-  if(!ISADMIN)return;
-  const data={geradoEm:new Date().toISOString(),inspecoes:ITENS,movimentacoes:MOVS,cadastroOverrides:OVR,cadastroCustom:CADX};
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:"application/json"}));
-  a.download=`backup_incendio_${new Date().toISOString().slice(0,10)}.json`;a.click();
-  localStorage.setItem("lastBackup",Date.now());audit("backup",null);toast("💾 Backup baixado!");};
+/* Backup completo, lido DIRETO do servidor. Antes ele gravava o que estava na memoria
+   do aparelho: so as 400 inspecoes mais recentes (LIMITE_INSP), sem condenacoes nem
+   usuarios — e o "Zerar" apagava TUDO do banco confiando nesse arquivo incompleto.
+   As fotos ficam de fora (sao grandes demais para um arquivo so).
+   Devolve true so quando o arquivo foi gerado com todas as colecoes. */
+window.backupJSON=async()=>{
+  if(!ISADMIN)return false;
+  toast("💾 Gerando backup completo…");
+  try{
+    const col=async n=>(await getDocsFromServer(collection(db,n))).docs.map(d=>({id:d.id,...d.data()}));
+    const cfg=async n=>{const s=await getDocFromServer(doc(db,"config",n));return s.exists()?s.data():null;};
+    const [inspecoes,movimentacoes,condenacoes,tratativas,usuarios,cadastroExt,cadastroCustom,admins]=await Promise.all([
+      col("inspecoes"),col("movimentacoes"),col("condenacoes"),col("tratativas"),col("usuarios"),
+      cfg("cadastroExt"),cfg("cadastroCustom"),cfg("admins")]);
+    const data={geradoEm:new Date().toISOString(),versao:2,
+      contagem:{inspecoes:inspecoes.length,movimentacoes:movimentacoes.length,condenacoes:condenacoes.length,
+        tratativas:tratativas.length,usuarios:usuarios.length},
+      inspecoes,movimentacoes,condenacoes,tratativas,usuarios,
+      config:{cadastroExt,cadastroCustom,admins},
+      /* nomes antigos, para quem ja tem rotina lendo o backup v1 */
+      cadastroOverrides:(cadastroExt&&cadastroExt.overrides)||{},
+      observacao:"Fotos nao incluidas (colecao fotos). Inspecoes, movimentacoes, condenacoes, tratativas, usuarios e cadastro completos."};
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:"application/json"}));
+    a.download=`backup_incendio_${dataLocal()}.json`;a.click();
+    localStorage.setItem("lastBackup",Date.now());audit("backup",data.contagem);
+    toast(`💾 Backup baixado: ${inspecoes.length} inspeções, ${movimentacoes.length} movimentações, ${condenacoes.length} condenações.`);
+    return true;
+  }catch(e){console.error("[backup]",e);
+    toast("⚠️ Backup NÃO gerado — precisa de conexão com o servidor ("+(e.code||e.message)+").");
+    return false;}};
 
 /* ---------- Zerar dados (recomeçar do cadastro embutido) ----------
    Apaga inspeções e movimentações da nuvem e devolve o cadastro de extintores
@@ -3405,7 +3588,10 @@ window.confirmaZerar=async()=>{
   const btn=$("dlgBody").querySelector("button.btn");
   if(btn){btn.disabled=true;btn.textContent="Apagando…";}
   try{
-    backupJSON();
+    /* sem backup completo confirmado, nada e apagado */
+    if(!(await backupJSON())){
+      if(btn){btn.disabled=false;btn.textContent="🧹 Apagar e recomeçar";}
+      return toast("⛔ Nada foi apagado: o backup completo não pôde ser gerado.");}
     let apagados=0;
     for(const col of ["inspecoes","movimentacoes"]){
       const snap=await getDocs(collection(db,col));
@@ -3427,7 +3613,8 @@ window.confirmaZerar=async()=>{
 window.zapVenc=()=>{
   const linhas=[];
   const add=(txt,dt)=>{const dias=diasAte(dt);if(dias!==null&&dias<=30)linhas.push(`${txt}: ${fmtBR(dt)} (${dias<0?"vencido há "+(-dias)+"d":"em "+dias+"d"})`);};
-  CAD.ext.forEach(e=>{const r=isReserva(e)?`🧯 Reserva Nº ${e.num??"—"}`:`🧯 Ext ${e.seq} Nº ${e.num??"—"}`;
+  CAD.ext.forEach(e=>{if(ehCondenado(e))return;   /* fora de operação: não se cobra manutenção */
+    const r=isReserva(e)?`🧯 Reserva Nº ${e.num??"—"}`:`🧯 Ext ${e.seq} Nº ${e.num??"—"}`;
     add(`${r} — Man. 2º Nível`,e.man2);add(`${r} — Man. 3º Nível`,e.man3);});
   CAD.hid.forEach(h=>{add(`🚒 ${h.pat} — Manutenção`,h.man);add(`🚒 ${h.pat} — T. Hidrostático`,h.th);});
   if(!linhas.length)return toast("Nada vencido ou vencendo em 30 dias. 👍");
@@ -3591,7 +3778,12 @@ window.geraEtiquetas=async()=>{
   setTimeout(()=>{fr.contentWindow.print();setTimeout(()=>fr.remove(),3000);},500);};
 
 /* ---------- Histórico por equipamento ---------- */
-window.historicoEquip=()=>{
+window.historicoEquip=async()=>{
+  if(!EQ)return;
+  const completo=TIPO==="ext"
+    ?await garanteInspPor("eqSeq",[Number(EQ.seq),String(EQ.seq)])
+    :(await garanteInspPor("eqPat",[String(EQ.pat)]))&&(await garanteInspPor("eqSeq",[Number(EQ.seq)]));
+  if(!completo)toast("⚠️ Sem conexão: o histórico mostra só as inspeções mais recentes.");
   if(!EQ)return;
   const key=TIPO==="ext"?EQ.seq:EQ.pat;
   const insp=ITENS.filter(i=>i.tipo===TIPO&&String(i.eqSeq??i.eqPat)===String(TIPO==="ext"?key:EQ.seq)||i.tipo===TIPO&&String(i.eqPat)===String(key));
@@ -3605,7 +3797,7 @@ window.historicoEquip=()=>{
       <b>${fmtBR(i.data)}</b> · ${esc(i.inspetor||"")}<br>
       ${TIPO==="ext"?`${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")} · NC: ${Object.entries(i.checklist||{}).filter(([k,v])=>v==="NC").map(([k])=>k).join(", ")||"nenhuma"}`:""}
       ${i.obs?`<br><small style="color:var(--cinza)">${esc(i.obs)}</small>`:""}</div>`).join(""):"<p>Nenhuma inspeção registrada para este equipamento.</p>"}
-    ${movs.length?"<br><b>🔁 Substituições nesta posição</b>"+movs.map(m=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0">${fmtBR(m.data)} — saiu Nº ${m.saiu} → entrou Nº ${m.entrou} · ${esc(m.inspetor||"")}</div>`).join(""):""}
+    ${movs.length?"<br><b>🔁 Substituições nesta posição</b>"+movs.map(m=>`<div style="border-bottom:1px dashed var(--borda);padding:5px 0">${fmtBR(m.data)} — saiu Nº ${esc(String(m.saiu??"—"))} → entrou Nº ${esc(String(m.entrou??"—"))} · ${esc(m.inspetor||"")}</div>`).join(""):""}
     </div><button class="btn sec" onclick="dlg.close()">Fechar</button>`;
   $("dlg").showModal();};
 
@@ -3614,7 +3806,7 @@ window.abrirCondenacao=(numFixo)=>{
   if(!ISADMIN)return toast("Apenas o administrador pode condenar um cilindro.");
   const fixo=numFixo?String(numFixo):"";
   const eq=fixo?CAD.ext.find(e=>chaveCil(e.num)===chaveCil(fixo)):null;
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=dataLocal();
   const ultimoRel=CONDS.length?(CONDS[0].relatorio||""):"";
   $("dlgBody").innerHTML=`<h3 style="color:var(--cd)">⛔ Condenar cilindro</h3>
     ${fixo?`<div class="auto" style="border-left-color:var(--cd)">
@@ -3763,7 +3955,7 @@ window.desfazerCondenacao=async(id)=>{
 /* ---------- Cadastro editável (admin) ---------- */
 async function salvaCADX(acao,det){
   if(!podeGravar())return;
-  try{const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+  try{const okCadx=await comTimeout(gravaCADX());
     aplicaOvr();audit(acao,det,okCadx);$("dlg").close();avisaGravacao(okCadx,"✅ Cadastro atualizado!");}
   catch(e){toast("Erro: "+e.message);}}
 /* ---------- Novo local (posição vazia, sem cilindro) ----------
@@ -3812,7 +4004,7 @@ window.salvaNovoLocal=async()=>{
   CADX.extAdd.push(novo);
   try{
     const okOvrNL=await alinhaOvrNovaPosicao(novo);
-    const okNL=(await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX)))&&okOvrNL;
+    const okNL=(await comTimeout(gravaCADX()))&&okOvrNL;
     aplicaOvr();audit("novo_local",{seq,loc,padrao:`${novo.agp} ${cgp}`},okNL);
     try{render();}catch(e){}
     $("dlg").close();
@@ -3857,11 +4049,11 @@ const seqsComHistoricoExt=()=>{
    inspeções mais recentes (ver LIMITE_INSP); um ID com inspeção só em mês antigo,
    fora dessa janela, passaria pela checagem de cima como "sem histórico". Usada
    sempre que uma troca de ID/patrimônio vai GRAVAR de verdade, não só na tela. */
-async function temInspecaoNoBanco(tipo,campo,valor){
+async function temInspecaoNoBanco(tipo,campo,valor,lancaErro=false){
   try{
     const snap=await getDocs(query(collection(db,"inspecoes"),where(campo,"==",valor)));
     return snap.docs.some(d=>d.data().tipo===tipo);
-  }catch(e){return true;} /* consulta falhou: mais seguro recusar a troca do que arriscar */
+  }catch(e){if(lancaErro)throw e;return true;} /* consulta falhou: mais seguro recusar a troca do que arriscar */
 }
 /* extDel entra aqui para o "proximo ID livre" nao cair sozinho num ID removido:
    quem quiser reaproveitar um ID removido informa o numero na mao, e ai a remocao
@@ -3907,10 +4099,18 @@ const proxSeqReserva=()=>{
    histórico dos dois. Repete a mesma conta de proxSeqExt/proxSeqReserva,
    mas confere cada candidato direto no banco antes de aceitar. Usar sempre
    que o ID for de fato gravado (não nas telas que só sugerem um número). */
+/* Devolve null (e avisa) se o banco nao responder: antes, uma consulta com erro contava
+   como "ID com historico" e o laco pulava para o proximo numero para sempre, consultando
+   o banco sem parar. Quem chama desfaz o que ja mexeu na memoria e para. */
 async function proxSeqSeguro(reserva){
+  let consultas=0;
   for(let n=reserva?tetoFixoExt()+1:1;;n++){
     if(seqsOcupadosExt().has(n)||seqsComHistoricoExt().has(n))continue;
-    if(!(await temInspecaoNoBanco("ext","eqSeq",n)))return n;}}
+    if(++consultas>60){toast("⚠️ Não achei um ID livre após 60 tentativas. Nada foi gravado.");return null;}
+    try{if(!(await temInspecaoNoBanco("ext","eqSeq",n,true)))return n;}
+    catch(e){console.error("[proxSeqSeguro]",e);
+      toast("⚠️ Não consegui consultar o banco para escolher o ID ("+(e.code||e.message)+"). Nada foi gravado — tente de novo com conexão.");
+      return null;}}}
 window.salvaNovoExt=async()=>{
   if(!podeGravar())return;
   const loc=$("cLoc").value.trim()||"Reserva";
@@ -3929,7 +4129,9 @@ window.salvaNovoExt=async()=>{
   const want=parseInt($("cSeq").value,10);
   const existe=want&&CAD.ext.find(x=>+x.seq===want);
   if(!want||!existe){
-    novo.seq=want||(isReserva(novo)?await proxSeqSeguro(true):await proxSeqSeguro(false));if(!novo.pat)novo.pat=novo.seq;
+    novo.seq=want||(isReserva(novo)?await proxSeqSeguro(true):await proxSeqSeguro(false));
+    if(novo.seq==null)return;
+    if(!novo.pat)novo.pat=novo.seq;
     CADX.extAdd.push(novo);
     if(!await alinhaOvrNovaPosicao(novo))
       toast("\u26a0\ufe0f O cadastro do local ainda n\u00e3o confirmou no sistema. Confira depois de recarregar.");
@@ -3955,7 +4157,7 @@ window.salvaNovoExt=async()=>{
   try{
     const lote=writeBatch(db);
     lote.set(doc(db,"config","cadastroExt"),{overrides:OVR});
-    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    gravaCADX(lote);
     await lote.commit();
     aplicaOvr();audit("renumerar_locais",{aPartirDe:want,num:novo.num});
     $("dlg").close();
@@ -4065,7 +4267,7 @@ window.confirmaAlteraId=async()=>{
        alinhado. Em gravacoes separadas, uma falha deixaria o equipamento no ID novo
        com os dados do ocupante anterior. O lote grava os dois ou nenhum. */
     const lote=writeBatch(db);
-    lote.set(doc(db,"config","cadastroCustom"),CADX);
+    gravaCADX(lote);
     lote.set(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true});
     await lote.commit();
     aplicaOvr();
@@ -4118,14 +4320,15 @@ window.confirmaAlteraPatHid=async()=>{
       const base=CAD0.hid.find(h=>+h.seq===+seqAtual);
       const chave=String(base?.pat??patAtual);
       CADX.hidEdit[chave]={...(CADX.hidEdit[chave]||{}),pat:novoPat};}
-    const ok=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
-    if(!ok){CADX=cadxAntes;return toast("⚠️ Não gravou agora — nada foi alterado. Tente de novo.");}
+    const ok=await comTimeout(gravaCADX());
+    /* ok=false e "passou do prazo": a troca ja esta na fila e vai subir. Antes o app
+       dizia "nada foi alterado" e desfazia a tela, mas a gravacao subia depois. */
     aplicaOvr();
     const achou=CAD.hid.find(h=>+h.seq===+seqAtual);
     if(achou){EQ=achou;$("fBusca").value=labelEq(EQ);mostraPadrao();}
-    audit("alterar_patrimonio_hid",{de:patAtual,para:novoPat});
+    audit("alterar_patrimonio_hid",{de:patAtual,para:novoPat},ok);
     $("dlg").close();
-    toast(`✅ O patrimônio ${patAtual} agora é o ${novoPat}.`);
+    avisaGravacao(ok,`✅ O patrimônio ${patAtual} agora é o ${novoPat}.`);
   }catch(e){CADX=cadxAntes;aplicaOvr();toast("Erro ao trocar o patrimônio, nada foi alterado: "+e.message);}};
 window.editarEquip=()=>{
   if(!ISADMIN)return;
@@ -4328,7 +4531,7 @@ window.limparPadraoReservasSelecionadas=async()=>{
     CADX.extEdit[seq]={...(CADX.extEdit[seq]||{}),agp:null,cgp:null};
     if(OVR[seq]){OVR[seq]={...OVR[seq],agp:null,cgp:null};patchOvr[seq]=OVR[seq];}});
   try{
-    const okCadx=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okCadx=await comTimeout(gravaCADX());
     let okOvr=true;
     if(Object.keys(patchOvr).length)okOvr=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true}));
     aplicaOvr();audit("limpar_padrao_reservas_em_lote",{qtd:sel.length},okCadx&&okOvr);$("dlg").close();
@@ -4416,6 +4619,10 @@ window.processaLote=async modo=>{
   const tq=$("lTipoEq").value;
   const f=$("lFile").files[0];if(!f)return toast("Selecione o arquivo .xlsx.");
   if(!validaXlsx(f))return;
+  /* se a leitura parar no meio, as linhas ja processadas nao podem ficar no CADX/OVR da
+     memoria: a proxima gravacao de qualquer outra tela as mandaria junto */
+  const _cadxAntesLote=JSON.parse(JSON.stringify(CADX)),_ovrAntesLote=JSON.parse(JSON.stringify(OVR));
+  let _gravando=false;
   try{
     const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());
     const ws=wb.worksheets[0];if(!ws)return toast("Planilha vazia.");
@@ -4451,6 +4658,7 @@ window.processaLote=async modo=>{
              anteriores deste mesmo lote, então não há colisão ao reaproveitar vãos */
           const ehReserva=!locRaw||/^\s*reserva/i.test(locRaw);
           const seqNovo=await proxSeqSeguro(ehReserva);
+          if(seqNovo==null)throw new Error("importação interrompida na linha "+rn+", nada foi gravado");
           const novoEq={seq:seqNovo,num:num||null,pat:pat||seqNovo,agp:agp||null,cgp:cgp||null,tipo:agp||null,carga:cgp||null,
             loc:locRaw||"Reserva",fab:+fab||null,fabricante:fabr||null,man2,man3,criado:dataHoje()};
           /* idem: sem isto a linha importada some se o ID ja tiver sido removido */
@@ -4580,13 +4788,16 @@ window.processaLote=async modo=>{
     if(modo==="add"&&!add)return toast("Nenhuma linha válida para importar."+(pulos.length?` (${pulos[0]}…)`:""));
     if(modo==="edit"&&!edit&&!rem&&!renom)return toast("Nenhuma alteração encontrada na planilha."+(pulos.length?` (${pulos[0]}…)`:""));
     const nOvr=Object.keys(patchOvr).length;
+    _gravando=true;
     const okOvr=nOvr?await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patchOvr},{merge:true})):true;
-    const okImp=await comTimeout(setDoc(doc(db,"config","cadastroCustom"),CADX));
+    const okImp=await comTimeout(gravaCADX());
     aplicaOvr();
     audit(modo==="add"?"importar_lote":"corrigir_lote",{tipo:tq,qtd:modo==="add"?add:edit,removidos:rem,renomeados:renom,ignoradas:pulos.slice(0,10)},okImp);
     $("dlg").close();
     avisaGravacao(okImp&&okOvr,`✅ ${modo==="add"?`${add} equipamentos importados`:`${edit} cadastros corrigidos${rem?` · ${rem} removido(s)`:""}${renom?` · ${renom} ID/patrimônio corrigido(s)`:""}`}${pulos.length?` · ${pulos.length} linha(s) ignorada(s)`:""}.`);
-  }catch(e){toast("Erro ao ler a planilha: "+e.message);}};
+  }catch(e){
+    if(!_gravando){CADX=_cadxAntesLote;OVR=_ovrAntesLote;try{aplicaOvr();}catch(x){}}
+    toast("Erro ao ler a planilha: "+e.message);}};
 
 /* ---------- Corrigir inspeções em lote ----------
    Mesmo espírito do "Corrigir cadastro em lote": baixa, edita, sobe. Só mexe no
@@ -4796,17 +5007,25 @@ window.exportXLSX=async tipo=>{
     }
     let r=8;
     const resumoExt=[];
-    for(const e of CAD.ext){
-      const insp=ultima[String(e.seq)]||null;
+    /* So entra quem ja existia no mes (mesma regra do painel e do laudo): antes, um
+       ponto criado em outubro saia no relatorio de agosto como "nao inspecionado". */
+    for(const e of CAD.ext.filter(x=>jaExistiaEm(x,pm))){
+      const insp0=ultima[String(e.seq)]||null;
+      /* O cilindro da linha e o que FOI inspecionado, nao o que esta no local hoje: num
+         mes passado com troca depois da inspecao, o relatorio atribuia a inspecao ao
+         cilindro errado. Os dados de fabricacao/manutencao vem desse cilindro. */
+      const trocou=insp0&&insp0.eqNum!=null&&String(insp0.eqNum)!==String(e.num??"");
+      const cil=trocou?(CAD.ext.find(x=>String(x.num)===String(insp0.eqNum))||{num:insp0.eqNum}):e;
+      const insp=insp0;
       let obs=insp?.obs||"";
       if(insp?.divergencia&&insp.diverg)obs=`⚠️ Divergência aceita (${insp.divergAceita}): padrão ${insp.diverg.agentePadrao} ${insp.diverg.cargaPadrao} → colocado ${insp.diverg.agenteInformado||insp.diverg.agentePadrao} ${insp.diverg.cargaInformada||insp.diverg.cargaPadrao}. ${obs}`;
       if(ws){
         const row=ws.getRow(r);row.height=75;
         /* "Padrão de Ag./Carga": local fixo usa e.agp/e.cgp; reserva usa o cilindro
            atual (e.tipo/e.carga), que é sempre o que vale nela — ver agPadraoOuAtual. */
-        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
-          insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoNoRelatorio(e,insp),
-          toDate(e.man2),toDate(e.man3),insp?toDate(insp.data):"",
+        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",cil.num??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
+          insp?.tipoLocal||"",insp?.cargaLocal||"",cil.fab??"",cil.fabricante||"",e.loc||"",situacaoNoRelatorio(e,insp),
+          toDate(cil.man2),toDate(cil.man3),insp?toDate(insp.data):"",
           ...CHK_EXT.map(c=>insp?.checklist?.[c]||""),obs,insp?.conformidade||""];
         ws.getCell(r,14).numFmt="mmm-yy";ws.getCell(r,15).numFmt="mmm-yy";ws.getCell(r,16).numFmt="dd/mm/yyyy";
         row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>28)return;dataCell(cell,cn===6||cn===7,true);
@@ -4826,7 +5045,7 @@ window.exportXLSX=async tipo=>{
           const itensNC=CHK_EXT.filter(c=>insp.checklist?.[c]==="NC");
           obsResumo=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(obs?` ${obs}`:"");
         }
-        resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
+        resumoExt.push([e.seq,e.loc||"",cil.num??"",e.pat??"",agPadraoOuAtual(e),cgPadraoOuAtual(e),
           situacaoNoRelatorio(e,insp),insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
       }
       r++;}
@@ -4880,7 +5099,7 @@ window.exportXLSX=async tipo=>{
     }
     let r=8;
     const resumoHid=[];
-    for(const e of CAD.hid){
+    for(const e of CAD.hid.filter(x=>jaExistiaEm(x,pm))){
       const insp=ultima[String(e.seq)]||null;
       const h=insp?.hid||{};
       if(ws){

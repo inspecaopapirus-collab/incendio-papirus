@@ -1,0 +1,19 @@
+{
+  "name": "incendio-papirus-testes",
+  "private": true,
+  "description": "Testes automaticos do app (rodam no GitHub Actions a cada PR). Nao sao publicados no site.",
+  "scripts": {
+    "test": "node --test unidade.test.js && node regras.test.js && node app.test.js",
+    "test:unidade": "node --test unidade.test.js",
+    "test:regras": "node regras.test.js",
+    "test:app": "node app.test.js",
+    "emulador": "firebase emulators:exec --only firestore,auth --project demo-papirus \"npm run test:regras && npm run test:app\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "exceljs": "4.4.0",
+    "firebase": "10.12.2",
+    "firebase-tools": "^13.35.1",
+    "playwright": "1.56.1"
+  }
+}

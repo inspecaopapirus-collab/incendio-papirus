@@ -4,6 +4,8 @@
     "ignore": [
       "firebase.json",
       "index_backup.html",
+      "firestore.rules",
+      "tests/**",
       "**/.*",
       "**/node_modules/**",
       "**/.github/**"
