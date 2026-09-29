@@ -422,6 +422,14 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="card">
  <b>⬇️ Exportar relatório Excel</b>
  <p style="font-size:12.5px;color:var(--cinza);margin-top:6px">Gera o relatório no padrão Engex do mês escolhido acima, com as colunas de padrão (cinza) travadas e as assinaturas dos inspetores no final.</p>
+ <div style="margin:10px 0 4px">
+ <label for="relFormato" style="font-size:12.5px;color:var(--cinza);display:block;margin-bottom:4px">Formato do arquivo:</label>
+ <select id="relFormato" aria-label="Formato do relatório">
+ <option value="ambos" selected>Completo + Resumo (padrão)</option>
+ <option value="completo">Somente completo (com todos os itens)</option>
+ <option value="resumo">Somente resumido (ideal para PDF/impressão)</option>
+ </select>
+ </div>
  <div class="btngrid">
  <button class="btn sec" onclick="exportXLSX('ext')">⬇️ Relatório de Extintores</button>
  <button class="btn sec" onclick="exportXLSX('hid')">⬇️ Relatório de Hidrantes</button>
@@ -4668,141 +4676,178 @@ async function blocoAssinaturas(wb,ws,r,nomes){
 
 window.exportXLSX=async tipo=>{
   const pm=$("pMes").value;
+  /* Eder pediu pra poder escolher, na hora de baixar, se quer o arquivo completo
+     (28/30 colunas, item a item), só o resumido (pensado pra imprimir/virar PDF)
+     ou os dois juntos (padrão de sempre). "completo" pula a aba Resumo; "resumo"
+     pula a aba detalhada inteira — inclusive não busca as fotos, que só valem a
+     pena carregar quando a aba detalhada vai sair. */
+  const formato=$("relFormato")?.value||"ambos"; // "completo" | "resumo" | "ambos"
+  const querDetalhe=formato!=="resumo";
+  const querResumo=formato!=="completo";
   await garanteMes(pm);
   const mesArr=ITENS.filter(i=>i.mes===pm&&i.tipo===tipo);
   const ultima={};mesArr.slice().reverse().forEach(i=>{ultima[String(i.eqSeq??i.eqPat)]=i;});
   const wb=new ExcelJS.Workbook();
   const hoje=new Date().toLocaleDateString("pt-BR");
   if(tipo==="ext"){
-    const ws=wb.addWorksheet("Modelo");
-    cabecalho(ws,"Relatório de Inspeção de Extintores  ",28,pm,hoje);
-    const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio","Nº","Padrão de Ag. Extintor","Padrão de Carga","Tipo no local","Carga no local","Data de Fabricação","Fabricante","Localização","Situação","Próx. Man. 2º Nível","Próx. Man. 3º Nível","Data da Inspeção","Acesso","Equipamento","Indicador de Pressão","Lacre","Mangueira","Sinalização","Sinalização de piso","Válvula","Obs","Conformidade\nC / NC ","Foto 01","Foto 02"];
-    cols.forEach((c,i)=>{const cell=ws.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,i===5||i===6);});
-    ws.getRow(7).height=43.5;
-    setWidths(ws,{A:5.5,B:14,C:12,D:15.5,E:11.8,F:10.8,G:9.7,H:11.8,I:17.3,J:22.7,K:15.3,L:21.2,M:13,N:12.8,O:12.7,P:13.3,Q:9,R:15.3,S:11,T:9,U:11,V:11,W:12,X:13,Y:20,Z:14.2,AA:26.5,AB:26.5});
-    ws.views=[{state:"frozen",ySplit:7}];
+    let ws=null;
+    if(querDetalhe){
+      ws=wb.addWorksheet("Modelo");
+      cabecalho(ws,"Relatório de Inspeção de Extintores  ",28,pm,hoje);
+      const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio","Nº","Padrão de Ag. Extintor","Padrão de Carga","Tipo no local","Carga no local","Data de Fabricação","Fabricante","Localização","Situação","Próx. Man. 2º Nível","Próx. Man. 3º Nível","Data da Inspeção","Acesso","Equipamento","Indicador de Pressão","Lacre","Mangueira","Sinalização","Sinalização de piso","Válvula","Obs","Conformidade\nC / NC ","Foto 01","Foto 02"];
+      cols.forEach((c,i)=>{const cell=ws.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,i===5||i===6);});
+      ws.getRow(7).height=43.5;
+      setWidths(ws,{A:5.5,B:14,C:12,D:15.5,E:11.8,F:10.8,G:9.7,H:11.8,I:17.3,J:22.7,K:15.3,L:21.2,M:13,N:12.8,O:12.7,P:13.3,Q:9,R:15.3,S:11,T:9,U:11,V:11,W:12,X:13,Y:20,Z:14.2,AA:26.5,AB:26.5});
+      ws.views=[{state:"frozen",ySplit:7}];
+    }
     let r=8;
     const resumoExt=[];
     for(const e of CAD.ext){
       const insp=ultima[String(e.seq)]||null;
-      const row=ws.getRow(r);row.height=75;
       let obs=insp?.obs||"";
       if(insp?.divergencia&&insp.diverg)obs=`⚠️ Divergência aceita (${insp.divergAceita}): padrão ${insp.diverg.agentePadrao} ${insp.diverg.cargaPadrao} → colocado ${insp.diverg.agenteInformado||insp.diverg.agentePadrao} ${insp.diverg.cargaInformada||insp.diverg.cargaPadrao}. ${obs}`;
-      /* "Padrão de Ag./Carga" de um local fixo vem de e.agp/e.cgp. Um item em
-         manutenção (reserva que saiu pra recarga) nunca teve isso definido —
-         o dado real do cilindro que está lá fica em e.tipo/e.carga (ver
-         confirmaTroca/toggleEngex). Sem o fallback, essas colunas saíam em
-         branco no relatório mesmo com o cilindro certinho cadastrado. */
-      row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
-        insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoDe("ext",e).txt,
-        toDate(e.man2),toDate(e.man3),insp?toDate(insp.data):"",
-        ...CHK_EXT.map(c=>insp?.checklist?.[c]||""),obs,insp?.conformidade||""];
-      ws.getCell(r,14).numFmt="mmm-yy";ws.getCell(r,15).numFmt="mmm-yy";ws.getCell(r,16).numFmt="dd/mm/yyyy";
-      row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>28)return;dataCell(cell,cn===6||cn===7,true);
-        if(cn===26&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
-      const FX=await fotosDe(insp);
-      if(FX.foto1)addFoto(wb,ws,FX.foto1,27,r);
-      if(FX.foto2)addFoto(wb,ws,FX.foto2,28,r);
+      if(ws){
+        const row=ws.getRow(r);row.height=75;
+        /* "Padrão de Ag./Carga" de um local fixo vem de e.agp/e.cgp. Um item em
+           manutenção (reserva que saiu pra recarga) nunca teve isso definido —
+           o dado real do cilindro que está lá fica em e.tipo/e.carga (ver
+           confirmaTroca/toggleEngex). Sem o fallback, essas colunas saíam em
+           branco no relatório mesmo com o cilindro certinho cadastrado. */
+        row.values=[e.seq,"Extintor",insp?.inspetor||"",e.pat??"",e.num??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
+          insp?.tipoLocal||"",insp?.cargaLocal||"",e.fab??"",e.fabricante||"",e.loc||"",situacaoDe("ext",e).txt,
+          toDate(e.man2),toDate(e.man3),insp?toDate(insp.data):"",
+          ...CHK_EXT.map(c=>insp?.checklist?.[c]||""),obs,insp?.conformidade||""];
+        ws.getCell(r,14).numFmt="mmm-yy";ws.getCell(r,15).numFmt="mmm-yy";ws.getCell(r,16).numFmt="dd/mm/yyyy";
+        row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>28)return;dataCell(cell,cn===6||cn===7,true);
+          if(cn===26&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
+        const FX=await fotosDe(insp);
+        if(FX.foto1)addFoto(wb,ws,FX.foto1,27,r);
+        if(FX.foto2)addFoto(wb,ws,FX.foto2,28,r);
+      }
       /* Aba "Resumo": mesma inspeção, só que sem os itens do checklist um a um —
          só o resultado (Conformidade) e, quando dá NC, qual item pesou (calculado
          a partir do checklist, sem precisar o inspetor escrever de novo) mais a
          Observação. Pedido do Eder pra ficar fácil de verificar em PDF/impressão
          (a aba "Modelo" com 28 colunas fica ilegível quando impressa). */
-      let obsResumo="";
-      if(insp?.conformidade==="NC"){
-        const itensNC=CHK_EXT.filter(c=>insp.checklist?.[c]==="NC");
-        obsResumo=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(obs?` ${obs}`:"");
+      if(querResumo){
+        let obsResumo="";
+        if(insp?.conformidade==="NC"){
+          const itensNC=CHK_EXT.filter(c=>insp.checklist?.[c]==="NC");
+          obsResumo=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(obs?` ${obs}`:"");
+        }
+        resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
+          situacaoDe("ext",e).txt,insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
       }
-      resumoExt.push([e.seq,e.loc||"",e.num??"",e.pat??"",e.agp||e.tipo||"",e.cgp||e.carga||"",
-        situacaoDe("ext",e).txt,insp?toDate(insp.data):"",insp?.conformidade||"",obsResumo]);
       r++;}
-    await blocoAssinaturas(wb,ws,r,new Set(mesArr.map(i=>i.inspetor).filter(Boolean)));
+    const inspetores=new Set(mesArr.map(i=>i.inspetor).filter(Boolean));
+    if(ws)await blocoAssinaturas(wb,ws,r,inspetores);
     /* Aba "Resumo" — vem antes de "Substituições" pra ficar logo depois da aba
        detalhada, que é onde alguém vai procurar primeiro. */
-    const wsR=wb.addWorksheet("Resumo");
-    cabecalho(wsR,"Relatório de Inspeção de Extintores — Resumo  ",10,pm,hoje);
-    const colsR=["Seq.","Localização","Nº","Patrimônio","Agente","Carga","Situação","Data da Inspeção","Conformidade\nC / NC","Observação"];
-    colsR.forEach((c,i)=>{const cell=wsR.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
-    wsR.getRow(7).height=30;
-    setWidths(wsR,{A:6,B:24,C:11,D:13,E:11,F:9,G:14,H:13,I:12,J:45});
-    wsR.views=[{state:"frozen",ySplit:7}];
     let rr=8;
-    for(const row of resumoExt){
-      wsR.getRow(rr).values=row;
-      wsR.getCell(rr,8).numFmt="dd/mm/yyyy";
-      wsR.getRow(rr).eachCell({includeEmpty:true},(cell,cn)=>{if(cn>10)return;dataCell(cell,false,false);
-        if(cn===9&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
-        if(cn===10)cell.alignment={vertical:"middle",horizontal:"left",wrapText:true};});
-      rr++;}
-    wsR.autoFilter={from:{row:7,column:1},to:{row:7,column:10}};
-    /* Aba com as substituições por reserva (recargas) e marcações de reserva Engex do mês */
-    const wsM=wb.addWorksheet("Substituições");
-    wsM.addRow(["Data","Motivo","Posição (Seq.)","Localização","Saiu Nº","Entrou Nº","Divergência","Responsável"]);
-    wsM.getRow(1).font={bold:true};
-    setWidths(wsM,{A:12,B:16,C:13,D:40,E:12,F:12,G:16,H:24});
-    const movsMes=MOVS.filter(m=>String(m.data||"").slice(0,7)===pm);
-    if(movsMes.length)movsMes.forEach(m=>wsM.addRow([fmtBR(m.data),m.motivo||"Troca por reserva",m.posicao,m.loc||"",m.saiu??"",m.entrou??"",m.divergencia?`Sim (${m.divergAceita||""})`:"Não",m.inspetor||""]));
-    else wsM.addRow(["Nenhuma substituição registrada no mês."]);
+    if(querResumo){
+      const wsR=wb.addWorksheet("Resumo");
+      cabecalho(wsR,"Relatório de Inspeção de Extintores — Resumo  ",10,pm,hoje);
+      const colsR=["Seq.","Localização","Nº","Patrimônio","Agente","Carga","Situação","Data da Inspeção","Conformidade\nC / NC","Observação"];
+      colsR.forEach((c,i)=>{const cell=wsR.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
+      wsR.getRow(7).height=30;
+      setWidths(wsR,{A:6,B:24,C:11,D:13,E:11,F:9,G:14,H:13,I:12,J:45});
+      wsR.views=[{state:"frozen",ySplit:7}];
+      for(const row of resumoExt){
+        wsR.getRow(rr).values=row;
+        wsR.getCell(rr,8).numFmt="dd/mm/yyyy";
+        wsR.getRow(rr).eachCell({includeEmpty:true},(cell,cn)=>{if(cn>10)return;dataCell(cell,false,false);
+          if(cn===9&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
+          if(cn===10)cell.alignment={vertical:"middle",horizontal:"left",wrapText:true};});
+        rr++;}
+      wsR.autoFilter={from:{row:7,column:1},to:{row:7,column:10}};
+      /* Se for o único conteúdo do arquivo (formato "resumo"), as assinaturas
+         precisam sair aqui — senão o arquivo fica sem esse bloco. */
+      if(!ws)await blocoAssinaturas(wb,wsR,rr,inspetores);
+    }
+    /* Aba com as substituições por reserva (recargas) e marcações de reserva Engex
+       do mês — só faz sentido junto do relatório completo, então some quando o
+       formato escolhido é o resumido puro. */
+    if(querDetalhe){
+      const wsM=wb.addWorksheet("Substituições");
+      wsM.addRow(["Data","Motivo","Posição (Seq.)","Localização","Saiu Nº","Entrou Nº","Divergência","Responsável"]);
+      wsM.getRow(1).font={bold:true};
+      setWidths(wsM,{A:12,B:16,C:13,D:40,E:12,F:12,G:16,H:24});
+      const movsMes=MOVS.filter(m=>String(m.data||"").slice(0,7)===pm);
+      if(movsMes.length)movsMes.forEach(m=>wsM.addRow([fmtBR(m.data),m.motivo||"Troca por reserva",m.posicao,m.loc||"",m.saiu??"",m.entrou??"",m.divergencia?`Sim (${m.divergAceita||""})`:"Não",m.inspetor||""]));
+      else wsM.addRow(["Nenhuma substituição registrada no mês."]);
+    }
   }else{
-    const ws=wb.addWorksheet("Padrão");
-    cabecalho(ws,"Relatório de Inspeção de Hidrantes ",30,pm,hoje);
-    const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio Novo","Tipo","Capacidade","Fabricação","Fabricante","Localização Nova","Prox. Manutenção","Prox. T. Hidrostático","Data da Inspeção","Adaptador Storz","Quantidade de Storz","Esguichos ","Tipo de Esguicho","Quantidade de Esguichos","","Visual Mangueiras","Quantidade de Mangueiras ","Tamanho dos Lances de mangueiras","Sinalização de Solo","Sinalização Aérea","Registros dos Hidrantes","Abrigo Lacrado","Conformidade","Outros","Obs","Foto 01","Foto 02"];
-    cols.forEach((c,i)=>{const cell=ws.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
-    ws.getRow(7).height=29;
-    setWidths(ws,{A:9.2,B:14.7,C:17,D:12.5,E:9,F:12.8,G:11,H:10.7,I:18.7,J:15.1,K:15.1,L:13.5,M:11.5,N:12.5,O:11.5,P:12,Q:14.8,R:13,S:13.8,T:16.8,U:19.7,V:13,W:13,X:14.7,Y:12,Z:12,AA:11.5,AB:20,AC:11.5,AD:10.8});
-    ws.views=[{state:"frozen",ySplit:7}];
+    let ws=null;
+    if(querDetalhe){
+      ws=wb.addWorksheet("Padrão");
+      cabecalho(ws,"Relatório de Inspeção de Hidrantes ",30,pm,hoje);
+      const cols=["Seq.","Equipamento","Responsável Pela Inspeção","Patrimônio Novo","Tipo","Capacidade","Fabricação","Fabricante","Localização Nova","Prox. Manutenção","Prox. T. Hidrostático","Data da Inspeção","Adaptador Storz","Quantidade de Storz","Esguichos ","Tipo de Esguicho","Quantidade de Esguichos","","Visual Mangueiras","Quantidade de Mangueiras ","Tamanho dos Lances de mangueiras","Sinalização de Solo","Sinalização Aérea","Registros dos Hidrantes","Abrigo Lacrado","Conformidade","Outros","Obs","Foto 01","Foto 02"];
+      cols.forEach((c,i)=>{const cell=ws.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
+      ws.getRow(7).height=29;
+      setWidths(ws,{A:9.2,B:14.7,C:17,D:12.5,E:9,F:12.8,G:11,H:10.7,I:18.7,J:15.1,K:15.1,L:13.5,M:11.5,N:12.5,O:11.5,P:12,Q:14.8,R:13,S:13.8,T:16.8,U:19.7,V:13,W:13,X:14.7,Y:12,Z:12,AA:11.5,AB:20,AC:11.5,AD:10.8});
+      ws.views=[{state:"frozen",ySplit:7}];
+    }
     let r=8;
     const resumoHid=[];
     for(const e of CAD.hid){
       const insp=ultima[String(e.seq)]||null;
       const h=insp?.hid||{};
-      const row=ws.getRow(r);row.height=66.75;
-      row.values=[e.seq,"Hidrante",insp?.inspetor||"",e.pat||"",e.tipo??"",e.cap??"",e.fab??"",e.fabricante||"",e.loc||"",
-        toDate(e.man),toDate(e.th),insp?toDate(insp.data):"",
-        h.storz||"",h.qtdStorz||"",h.esguichos||"",h.tipoEsguicho||"",h.qtdEsguichos||"","",
-        h.mangueiras||"",h.qtdMangueiras||"",h.lances||"",h.sinSolo||"",h.sinAerea||"",h.registro||"",h.abrigo||"",
-        insp?.conformidade||"",h.outros||"",insp?.obs||""];
-      ws.getCell(r,10).numFmt="mmm-yy";ws.getCell(r,11).numFmt="mmm-yy";ws.getCell(r,12).numFmt="dd/mm/yyyy";
-      row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>30)return;dataCell(cell,false,false);
-        if(cn===26&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
-      const FH=await fotosDe(insp);
-      if(FH.foto1)addFoto(wb,ws,FH.foto1,29,r);
-      if(FH.foto2)addFoto(wb,ws,FH.foto2,30,r);
+      if(ws){
+        const row=ws.getRow(r);row.height=66.75;
+        row.values=[e.seq,"Hidrante",insp?.inspetor||"",e.pat||"",e.tipo??"",e.cap??"",e.fab??"",e.fabricante||"",e.loc||"",
+          toDate(e.man),toDate(e.th),insp?toDate(insp.data):"",
+          h.storz||"",h.qtdStorz||"",h.esguichos||"",h.tipoEsguicho||"",h.qtdEsguichos||"","",
+          h.mangueiras||"",h.qtdMangueiras||"",h.lances||"",h.sinSolo||"",h.sinAerea||"",h.registro||"",h.abrigo||"",
+          insp?.conformidade||"",h.outros||"",insp?.obs||""];
+        ws.getCell(r,10).numFmt="mmm-yy";ws.getCell(r,11).numFmt="mmm-yy";ws.getCell(r,12).numFmt="dd/mm/yyyy";
+        row.eachCell({includeEmpty:true},(cell,cn)=>{if(cn>30)return;dataCell(cell,false,false);
+          if(cn===26&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};});
+        const FH=await fotosDe(insp);
+        if(FH.foto1)addFoto(wb,ws,FH.foto1,29,r);
+        if(FH.foto2)addFoto(wb,ws,FH.foto2,30,r);
+      }
       /* mesma ideia da aba "Resumo" dos extintores — ver comentário lá. Só o
          Abrigo lacrado derruba a NC geral (ver confAuto), mas os outros itens
          entram na lista de "não conforme" também quando reprovados — ficam
          registrados, mesmo sendo achado leve. */
-      let obsResumoH="";
-      if(insp?.conformidade==="NC"){
-        const itensNC=CHK_HID_ROTULOS.filter(([k])=>h[k]==="NC").map(([,label])=>label);
-        if(h.abrigo==="Não")itensNC.push("Abrigo lacrado");
-        obsResumoH=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(insp?.obs?` ${insp.obs}`:"");
+      if(querResumo){
+        let obsResumoH="";
+        if(insp?.conformidade==="NC"){
+          const itensNC=CHK_HID_ROTULOS.filter(([k])=>h[k]==="NC").map(([,label])=>label);
+          if(h.abrigo==="Não")itensNC.push("Abrigo lacrado");
+          obsResumoH=(itensNC.length?`Item(ns) não conforme: ${itensNC.join(", ")}.`:"")+(insp?.obs?` ${insp.obs}`:"");
+        }
+        resumoHid.push([e.seq,e.loc||"",e.pat||"",e.tipo??"",e.cap??"",insp?toDate(insp.data):"",
+          insp?.conformidade||"",obsResumoH]);
       }
-      resumoHid.push([e.seq,e.loc||"",e.pat||"",e.tipo??"",e.cap??"",insp?toDate(insp.data):"",
-        insp?.conformidade||"",obsResumoH]);
       r++;}
-    await blocoAssinaturas(wb,ws,r,new Set(mesArr.map(i=>i.inspetor).filter(Boolean)));
-    const wsR=wb.addWorksheet("Resumo");
-    cabecalho(wsR,"Relatório de Inspeção de Hidrantes — Resumo  ",8,pm,hoje);
-    const colsR=["Seq.","Localização","Patrimônio","Tipo","Capacidade","Data da Inspeção","Conformidade\nC / NC","Observação"];
-    colsR.forEach((c,i)=>{const cell=wsR.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
-    wsR.getRow(7).height=30;
-    setWidths(wsR,{A:6,B:24,C:13,D:12,E:12,F:13,G:12,H:45});
-    wsR.views=[{state:"frozen",ySplit:7}];
-    let rr=8;
-    for(const row of resumoHid){
-      wsR.getRow(rr).values=row;
-      wsR.getCell(rr,6).numFmt="dd/mm/yyyy";
-      wsR.getRow(rr).eachCell({includeEmpty:true},(cell,cn)=>{if(cn>8)return;dataCell(cell,false,false);
-        if(cn===7&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
-        if(cn===8)cell.alignment={vertical:"middle",horizontal:"left",wrapText:true};});
-      rr++;}
-    wsR.autoFilter={from:{row:7,column:1},to:{row:7,column:8}};
+    const inspetores=new Set(mesArr.map(i=>i.inspetor).filter(Boolean));
+    if(ws)await blocoAssinaturas(wb,ws,r,inspetores);
+    if(querResumo){
+      const wsR=wb.addWorksheet("Resumo");
+      cabecalho(wsR,"Relatório de Inspeção de Hidrantes — Resumo  ",8,pm,hoje);
+      const colsR=["Seq.","Localização","Patrimônio","Tipo","Capacidade","Data da Inspeção","Conformidade\nC / NC","Observação"];
+      colsR.forEach((c,i)=>{const cell=wsR.getRow(7).getCell(i+1);cell.value=c;headerCell(cell,false);});
+      wsR.getRow(7).height=30;
+      setWidths(wsR,{A:6,B:24,C:13,D:12,E:12,F:13,G:12,H:45});
+      wsR.views=[{state:"frozen",ySplit:7}];
+      let rr=8;
+      for(const row of resumoHid){
+        wsR.getRow(rr).values=row;
+        wsR.getCell(rr,6).numFmt="dd/mm/yyyy";
+        wsR.getRow(rr).eachCell({includeEmpty:true},(cell,cn)=>{if(cn>8)return;dataCell(cell,false,false);
+          if(cn===7&&cell.value==="NC")cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
+          if(cn===8)cell.alignment={vertical:"middle",horizontal:"left",wrapText:true};});
+        rr++;}
+      wsR.autoFilter={from:{row:7,column:1},to:{row:7,column:8}};
+      if(!ws)await blocoAssinaturas(wb,wsR,rr,inspetores);
+    }
   }
   const buf=await wb.xlsx.writeBuffer();
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
-  a.download=`Relatorio_${tipo==="ext"?"Extintores":"Hidrantes"}_${pm}.xlsx`;a.click();
+  const sufFmt=formato==="completo"?"_Completo":formato==="resumo"?"_Resumo":"";
+  a.download=`Relatorio_${tipo==="ext"?"Extintores":"Hidrantes"}_${pm}${sufFmt}.xlsx`;a.click();
   toast("✅ Relatório gerado!");};
 
 if("serviceWorker"in navigator&&location.protocol==="https:")navigator.serviceWorker.register("/sw.js").catch(()=>{});
