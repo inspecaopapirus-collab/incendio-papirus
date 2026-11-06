@@ -20,6 +20,8 @@ function preparaHtml(modoTeste) {
   troca('projectId: "incendio-papirus"', `projectId: "${PROJ}"`);
   troca("initializeAppCheck(fb,", "(()=>{})(fb,");
   troca("auth=getAuth(fb);", 'auth=getAuth(fb);connectAuthEmulator(auth,"http://127.0.0.1:9099",{disableWarnings:true});');
+  /* a conta nova e criada numa 2a instancia do Firebase (para nao deslogar o admin) */
+  troca("const auth2=getAuth(app2);", 'const auth2=getAuth(app2);connectAuthEmulator(auth2,"http://127.0.0.1:9099",{disableWarnings:true});');
   troca("persistentMultipleTabManager()})});", 'persistentMultipleTabManager()})});connectFirestoreEmulator(db,"127.0.0.1",8080);');
   /* vale para as duas branches: main (false) e teste (true) */
   if (!/const MODO_TESTE = (true|false);/.test(s)) throw new Error("linha do MODO_TESTE sumiu do index.html");
@@ -205,6 +207,23 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
   { const { ctx, p } = await abre();
     await entra(p, "admin.teste@exemplo.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(2500);
     confere(await p.$eval("#cardEmpresas", e => e.classList.contains("hidden")), "admin comum nao ve a area de empresas");
+    /* criar acesso: conta nova, e conta que ficou sem cadastro (sinal caiu na 1a tentativa) */
+    const orfao = await signUp("orfao@exemplo.com");
+    const cria = async (email, senha) => {
+      await p.evaluate(() => window.cadastrarInspetor());
+      await p.fill("#uNome", "Pessoa " + email.split("@")[0]); await p.fill("#uEmail", email); await p.fill("#uSenha", senha);
+      await p.evaluate(() => document.querySelector('[onclick="salvaInspetor()"]').click()); await p.waitForTimeout(3000);
+      return p.textContent("#toast"); };
+    await cria("novo2@exemplo.com", "abc12345");
+    let novo2 = null; await escreve(async d => { const q = await F.getDocs(F.collection(d, "usuarios")); novo2 = q.docs.map(x => x.data()).find(x => x.email === "novo2@exemplo.com") || null; });
+    confere(novo2 && novo2.perfil === "inspetor", "admin cria acesso novo", novo2);
+    const msgErrada = await cria("orfao@exemplo.com", "outraSenha");
+    confere(msgErrada.includes("MESMA senha") && !(await le("usuarios", orfao)), "conta sem cadastro + senha errada: nao mexe e explica", msgErrada);
+    const msgOk = await cria("orfao@exemplo.com", "senha123");
+    const ud = await le("usuarios", orfao);
+    confere(ud && ud.perfil === "inspetor" && msgOk.includes("completado"), "conta sem cadastro: completa o cadastro com a mesma senha", { ud, msgOk });
+    const msgJa = await cria("orfao@exemplo.com", "senha123");
+    confere(msgJa.includes("já tem acesso"), "conta com cadastro: avisa que ja tem acesso", msgJa);
     await ctx.close(); }
   { const { ctx, p } = await abre();
     await entra(p, "ederbatistelajr@gmail.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(3000);

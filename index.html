@@ -2781,7 +2781,7 @@ window.render=()=>{
   const blocoRota=(lista,rotulo)=>{
     if(!lista.length)return `<p style="font-size:12.5px;color:var(--ok);margin:6px 0 2px">✅ Todos os ${rotulo} inspecionados!</p>`;
     const areas={};lista.forEach(p=>{const a=normRota(p.loc);(areas[a]=areas[a]||[]).push(p);});
-    return Object.keys(areas).sort().map(a=>`<details style="margin:6px 0"><summary style="font-weight:700;font-size:13px;cursor:pointer">${esc(a)} (${areas[a].length})</summary>${areas[a].map(p=>`<div class="venc" style="cursor:pointer" onclick="irPara('${p.t}','${String(p.id).replace(/'/g,"")}')"><span>${p.lb}<br><small style="color:var(--cinza)">${esc(p.loc)}</small></span><span>➡️</span></div>`).join("")}</details>`).join("");};
+    return Object.keys(areas).sort().map(a=>`<details style="margin:6px 0"><summary style="font-weight:700;font-size:13px;cursor:pointer">${esc(a)} (${areas[a].length})</summary>${areas[a].map(p=>`<div class="venc" style="cursor:pointer" onclick="irPara('${p.t}','${String(p.id).replace(/'/g,"")}')"><span>${esc(p.lb)}<br><small style="color:var(--cinza)">${esc(p.loc)}</small></span><span>➡️</span></div>`).join("")}</details>`).join("");};
   /* Pool de reserva sem inspecao no mes.
      Os cilindros de reserva entram na rota igual aos instalados, mas ficavam
      diluidos na lista de pendencias por area — em 08/2026 as 25 pendencias do mes
@@ -2923,17 +2923,19 @@ const subExt=e=>isReserva(e)?`Pool de reserva — não instalar antes da manuten
 const agenteDe=e=>normAg(e.tipo||e.agp||"")||"";
 /* .trim() evita que "EM " e "EM" virem duas opções no filtro de agente */
 const rotuloAg=e=>String(e.tipo||e.agp||"—").trim().toUpperCase().replace(/\s+/g," ");
-/* preenche os selects de mês e agente uma vez, preservando a escolha */
+/* preenche os selects de mês e agente, preservando a escolha */
 function montaFiltrosVenc(){
   const meses=new Set(),ags=new Set();
   CAD.ext.forEach(e=>{[e.man2,e.man3].forEach(d=>{if(d)meses.add(String(d).slice(0,7));});
     if((e.man2||e.man3)&&agenteDe(e))ags.add(rotuloAg(e));});
   CAD.hid.forEach(h=>[h.man,h.th].forEach(d=>{if(d)meses.add(String(d).slice(0,7));}));
   const selM=$("vMes"),selA=$("vAg");
-  if(selM&&selM.options.length<=1)
-    selM.innerHTML=`<option value="">Mês: todos</option>`+[...meses].sort().map(m=>`<option value="${m}">${mesExtenso(m)}</option>`).join("");
-  if(selA&&selA.options.length<=1)
-    selA.innerHTML=`<option value="">Agente: todos</option>`+[...ags].sort().map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join("");}
+  /* refeitos quando a lista muda (antes so na 1a vez: um agente ou mes novo no cadastro
+     so aparecia no filtro depois de recarregar o app); a escolha atual e mantida */
+  const opcoes=(sel,html)=>{if(!sel||sel.dataset.ops===html)return;const v=sel.value;sel.innerHTML=html;sel.dataset.ops=html;
+    if([...sel.options].some(o=>o.value===v))sel.value=v;};
+  opcoes(selM,`<option value="">Mês: todos</option>`+[...meses].filter(m=>/^\d{4}-\d{2}$/.test(m)).sort().map(m=>`<option value="${m}">${mesExtenso(m)}</option>`).join(""));
+  opcoes(selA,`<option value="">Agente: todos</option>`+[...ags].sort().map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join(""));}
 window.renderVenc=()=>{
   montaFiltrosVenc();
   const fM=$("vMes")?.value||"",fA=$("vAg")?.value||"",fS=$("vSit")?.value||"",
@@ -2956,7 +2958,7 @@ window.renderVenc=()=>{
     /* Um cartao por EQUIPAMENTO, com os niveis dentro. Antes era uma linha por
        nivel: o mesmo extintor aparecia duas vezes e o contador somava linhas. */
     const pior=Math.min(...niveis.map(n=>n.dd));
-    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${rotuloExt(e)} \u00b7 <b>${rotuloAg(e)}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na ${PN()} desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${subExt(e)}</small></span></div>`});});
+    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${esc(rotuloExt(e))} \u00b7 <b>${esc(rotuloAg(e))}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na ${PN()} desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${esc(subExt(e))}</small></span></div>`});});
   linhas.sort((a,b)=>a.d-b.d);
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
@@ -3380,25 +3382,38 @@ window.salvaInspetor=async()=>{
      criada DE VERDADE, mas o perfil iria para teste_usuarios — na producao a pessoa
      entraria como inspetor com permissao de gravar, qualquer que fosse o perfil. */
   if(MODO_TESTE)return toast("Ambiente de teste: criar acesso cria uma conta real. Crie o usuário no app de produção.");
-  const btn=event.target;btn.disabled=true;btn.textContent="Criando…";
+  /* o botao de verdade, mesmo que o clique caia num icone dentro dele */
+  const btn=(window.event&&window.event.target&&window.event.target.closest&&window.event.target.closest("button"))||{};
+  btn.disabled=true;btn.textContent="Criando…";
   let app2=null;
   try{
     app2=initializeApp(firebaseConfig,"criaUsuario"+Date.now());
     const auth2=getAuth(app2);
-    const cred=await createUserWithEmailAndPassword(auth2,email,senha);
+    let cred,retomada=false;
+    try{cred=await createUserWithEmailAndPassword(auth2,email,senha);}
+    catch(e){
+      if(e.code!=="auth/email-already-in-use")throw e;
+      /* a conta existe. Se foi criada aqui antes e o cadastro nao chegou a gravar (sinal
+         caiu no meio), entrar com a mesma senha da o uid e completa o cadastro. */
+      try{cred=await signInWithEmailAndPassword(auth2,email,senha);}catch(e2){throw e;}
+      const ja=await getDoc(doc(db,"usuarios",cred.user.uid)).catch(()=>null);
+      if(ja&&ja.exists()){await signOut(auth2);throw e;}
+      retomada=true;}
     /* o perfil e o que diz se a conta e de teste (nao grava) ou inspetor/admin.
        Antes a falha aqui era engolida e a conta ficava como inspetor sem ninguem saber. */
     let okPerfil=false,erroPerfil="";
     try{okPerfil=await comTimeout(setDoc(doc(db,"usuarios",cred.user.uid),{nome,email,perfil,...(empresa?{empresa}:{})}),8000);}
     catch(e){erroPerfil=e.code||e.message;console.error("[perfil do novo usuario]",e);}
     await signOut(auth2);
-    audit("novo_usuario",{email,nome,perfil},okPerfil);
+    audit("novo_usuario",{email,nome,perfil,...(retomada?{cadastroCompletado:true}:{})},okPerfil);
     $("dlg").close();
-    if(okPerfil)toast(`✅ Acesso criado como ${PERFIS[perfil]} — já pode entrar no app!`);
+    if(okPerfil)toast(retomada?`✅ A conta já existia sem cadastro — cadastro completado como ${PERFIS[perfil]}.`
+      :`✅ Acesso criado como ${PERFIS[perfil]} — já pode entrar no app!`);
     else alert(`⚠️ A conta ${email} foi criada, mas o PERFIL (${PERFIS[perfil]}) não foi confirmado no sistema`
-      +(erroPerfil?` (${erroPerfil})`:"")+`.\n\nAbra "👥 Usuários e perfis" e confira o perfil dessa pessoa antes de ela entrar — `
-      +`sem o perfil ela entra como Inspetor, com permissão de gravar.`);
-  }catch(e){toast("Erro: "+(e.code==="auth/email-already-in-use"?"este e-mail já tem acesso.":e.message));}
+      +(erroPerfil?` (${erroPerfil})`:"")+`.\n\nSem o cadastro a pessoa NÃO consegue entrar. Abra "👥 Usuários e perfis" e confira; `
+      +`se ela não aparecer lá, tente criar o acesso de novo com conexão estável (o e-mail já existe — use "esqueci a senha" se precisar).`);
+  }catch(e){toast("Erro: "+(e.code==="auth/email-already-in-use"
+    ?"este e-mail já tem acesso. Se a pessoa não consegue entrar, repita usando a MESMA senha de quando a conta foi criada.":e.message));}
   if(app2)try{await deleteApp(app2);}catch(e){}
   btn.disabled=false;btn.textContent="Criar acesso";};
 /* ---------- Usuários e perfis ---------- */
