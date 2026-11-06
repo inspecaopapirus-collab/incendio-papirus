@@ -18,6 +18,7 @@ const F = require("firebase/firestore");
     await F.setDoc(F.doc(d, "usuarios", "adm"), { nome: "Adm", perfil: "admin", email: "adm@x.com" });
     await F.setDoc(F.doc(d, "usuarios", "bloq"), { nome: "Bloq", perfil: "bloqueado", email: "bloq@x.com" });
     await F.setDoc(F.doc(d, "usuarios", "tst"), { nome: "Tst", perfil: "teste_inspetor", email: "tst@x.com" });
+    await F.setDoc(F.doc(d, "usuarios", "insp2"), { nome: "Insp2", perfil: "inspetor", email: "insp2@x.com", empresa: "engex" });
     await F.setDoc(F.doc(d, "config", "admins"), { emails: ["chefe@x.com"] });
     await F.setDoc(F.doc(d, "config", "cadastroExt"), { overrides: { "1": { num: "A" }, "2": { num: "B" }, "3": { num: "C" } } });
     await F.setDoc(F.doc(d, "config", "cadastroCustom"), { extAdd: [], extEdit: {} });
@@ -26,7 +27,8 @@ const F = require("firebase/firestore");
   const u = (uid, email) => env.authenticatedContext(uid, { email }).firestore();
   const estranho = u("estranho", "qualquer@x.com"), estranhoAdmEmail = u("fake", "chefe@x.com"),
     insp = u("insp", "insp@x.com"), adm = u("adm", "adm@x.com"), bloq = u("bloq", "bloq@x.com"), tst = u("tst", "tst@x.com"),
-    fixo = u("fixoSemCadastro", "emailparaia650@gmail.com"), anon = env.unauthenticatedContext().firestore();
+    fixo = u("fixoSemCadastro", "emailparaia650@gmail.com"), anon = env.unauthenticatedContext().firestore(),
+    dono = u("dono", "ederbatistelajr@gmail.com"), insp2 = u("insp2", "insp2@x.com");
   const casos = [
     ["Estranho (conta criada por fora, sem cadastro) le as inspecoes", false, () => F.getDoc(F.doc(estranho, "inspecoes", "i1"))],
     ["Estranho registra inspecao", false, () => F.setDoc(F.doc(estranho, "inspecoes", "x1"), { tipo: "ext" })],
@@ -56,6 +58,17 @@ const F = require("firebase/firestore");
     ["Bloqueado registra inspecao", false, () => F.setDoc(F.doc(bloq, "inspecoes", "x3"), { tipo: "ext" })],
     ["Perfil teste le inspecoes", true, () => F.getDoc(F.doc(tst, "inspecoes", "i1"))],
     ["Perfil teste registra inspecao real", false, () => F.setDoc(F.doc(tst, "inspecoes", "x4"), { tipo: "ext" })],
+    ["Dono (ederbatistelajr) altera as empresas", true, () => F.setDoc(F.doc(dono, "config", "empresas"), { atual: "nova", prestadoras: [{ id: "nova", nome: "Nova", curto: "Nova" }] })],
+    ["Outro admin fixo altera as empresas", false, () => F.setDoc(F.doc(fixo, "config", "empresas"), { atual: "x" }, { merge: true })],
+    ["Admin comum altera as empresas", false, () => F.setDoc(F.doc(adm, "config", "empresas"), { atual: "x" }, { merge: true })],
+    ["Inspetor le as empresas", true, () => F.getDoc(F.doc(insp2, "config", "empresas"))],
+    ["Dono define a empresa de um usuario", true, () => F.setDoc(F.doc(dono, "usuarios", "tst"), { empresa: "nova" }, { merge: true })],
+    ["Admin comum define a empresa de um usuario", false, () => F.setDoc(F.doc(adm, "usuarios", "tst"), { empresa: "outra" }, { merge: true })],
+    ["Admin comum ainda muda o perfil de alguem", true, () => F.setDoc(F.doc(adm, "usuarios", "tst"), { perfil: "teste_admin" }, { merge: true })],
+    ["Inspetor muda a propria empresa", false, () => F.setDoc(F.doc(insp2, "usuarios", "insp2"), { empresa: "nova" }, { merge: true })],
+    ["Inspetor atualiza o proprio nome (empresa intacta)", true, () => F.setDoc(F.doc(insp2, "usuarios", "insp2"), { nome: "Insp 2", ultimoAcesso: 2 }, { merge: true })],
+    ["Admin comum cria usuario ja com empresa", false, () => F.setDoc(F.doc(adm, "usuarios", "n2"), { nome: "N2", perfil: "inspetor", empresa: "nova" })],
+    ["Dono cria usuario com empresa", true, () => F.setDoc(F.doc(dono, "usuarios", "n3"), { nome: "N3", perfil: "inspetor", empresa: "nova" })],
   ];
   let falhas = 0;
   for (const [desc, deveria, fn] of casos) {

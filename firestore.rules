@@ -15,6 +15,10 @@ service cloud.firestore {
     function ehAdminFixo() {
       return email() in ['ederbatistelajr@gmail.com', 'emailparaia650@gmail.com'];
     }
+    // Dono do cadastro de empresas: o unico que altera as empresas e a empresa de cada usuario
+    function ehDonoEmpresas() {
+      return email() == 'ederbatistelajr@gmail.com';
+    }
     // cadastro criado por um administrador em "usuarios"
     function cadastrado() {
       return exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
@@ -80,12 +84,18 @@ service cloud.firestore {
     }
     // Usuários. Cada um lê o PRÓPRIO cadastro mesmo com o acesso encerrado (é assim
     // que o app mostra "acesso encerrado"). Só admin cria cadastro e muda "perfil".
+    // A empresa da pessoa so muda pelas maos do dono do cadastro de empresas.
+    function empresaIntacta() {
+      return request.resource.data.get('empresa', null) == resource.data.get('empresa', null);
+    }
     match /usuarios/{uid} {
       allow read: if autenticado() && (request.auth.uid == uid || ativo());
-      allow create: if ehAdmin() && podeGravar();
-      allow update: if (ehAdmin() && podeGravar())
+      allow create: if ehAdmin() && podeGravar()
+        && (request.resource.data.get('empresa', null) == null || ehDonoEmpresas());
+      allow update: if (ehAdmin() && podeGravar() && (empresaIntacta() || ehDonoEmpresas()))
         || (ativo()
             && request.auth.uid == uid
+            && empresaIntacta()
             && request.resource.data.get('perfil', 'inspetor') == resource.data.get('perfil', 'inspetor'));
       allow delete: if false;
     }
@@ -107,10 +117,15 @@ service cloud.firestore {
         || (podeGravar()
             && request.resource.data.overrides.diff(resource.data.overrides).affectedKeys().size() <= 2);
     }
+    // Empresas (prestadora do serviço e cliente): só o dono do cadastro altera
+    match /config/empresas {
+      allow read: if ativo();
+      allow write: if ehDonoEmpresas() && podeGravar();
+    }
     // Demais configurações (cadastro custom, lista de admins): só admin altera
     match /config/{docId} {
       allow read: if ativo();
-      allow write: if ehAdmin() && podeGravar();
+      allow write: if ehAdmin() && podeGravar() && docId != 'empresas';
     }
   }
 }

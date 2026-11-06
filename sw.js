@@ -1,6 +1,6 @@
 /* Service worker — Combate a Incêndio Papirus (v3)
    Deixa o app abrir sem conexão e avisa vencimentos em segundo plano. */
-const CACHE="incendio-v19";
+const CACHE="incendio-v20";
 self.addEventListener("install",e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(["/"])).then(()=>self.skipWaiting()));});
 self.addEventListener("activate",e=>{
@@ -31,7 +31,7 @@ self.addEventListener("fetch",e=>{
      u.hostname.includes("generativelanguage.googleapis.com"))return;
   if(e.request.mode==="navigate"){
     e.respondWith(fetch(e.request)
-      .then(r=>{const cp=r.clone();caches.open(CACHE).then(c=>c.put("/",cp));return r;})
+      .then(r=>{if(r.ok){const cp=r.clone();caches.open(CACHE).then(c=>c.put("/",cp));}return r;})
       .catch(()=>caches.match("/")));
     return;}
   e.respondWith(caches.match(e.request).then(hit=>{
