@@ -212,10 +212,15 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     await p.evaluate(() => window.editarEmpresas());
     await p.evaluate(() => window.novaPrestadora());
     await p.fill("#epNome1", "Nova Extintores Ltda"); await p.fill("#epCurto1", "NovaX");
+    await p.setInputFiles("#lg_p1", path.join(RAIZ, "icon-192.png")); await p.waitForTimeout(1500);
+    const nomeFicou = await p.inputValue("#epNome1");
     await p.evaluate(() => window.salvaEmpresas()); await p.waitForTimeout(2500);
     const emp = await le("config", "empresas");
     const atual = emp && emp.prestadoras.find(x => x.id === emp.atual);
     confere(atual && atual.nome === "Nova Extintores Ltda" && emp.prestadoras.some(x => x.id === "engex"), "empresa nova salva e a Engex fica no historico", emp);
+    confere(nomeFicou === "Nova Extintores Ltda" && /^data:image\/png;base64,/.test(atual && atual.logo || "") && atual.logoW > 0 && atual.logoW <= 480,
+      "logo da prestadora salvo (reduzido) sem perder o que foi digitado", atual && { nomeFicou, w: atual.logoW, h: atual.logoH, tam: (atual.logo || "").length });
+    confere(await p.$eval("#empLogoPrev", e => !e.classList.contains("hidden") && !!e.querySelector("img")), "cartao de empresas mostra o logo atual");
     const tela = await p.evaluate(() => ({ kpi: document.querySelector(".kpi .nPrest").textContent, opt: document.querySelector("option.oPrest").textContent }));
     confere(tela.kpi === "NovaX" && tela.opt === "Reserva NovaX", "os nomes da tela passam a usar a empresa nova", tela);
     /* nenhuma tela pode mostrar "${" (texto que o JavaScript deveria ter trocado) */
@@ -252,8 +257,16 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     const cab = async pm => {
       await p.evaluate(m => { const s = document.getElementById("pMes"); if (![...s.options].some(o => o.value === m)) s.add(new Option(m, m)); s.value = m; }, pm);
       const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 30000 }), p.evaluate(() => window.exportXLSX("ext"))]);
-      const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(await dl.path()); return String(wb.worksheets[0].getCell("A2").value); };
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(await dl.path());
+      const ws = wb.worksheets[0], logo = ws.getImages().some(im => im.range.tl.nativeRow === 0);
+      return Object.assign(String(ws.getCell("A2").value), { logo }); };
     const velho = await cab("2026-08"), atualCab = await cab(mesAt);
+    confere(!velho.logo && atualCab.logo, "Excel: logo da empresa nova no mes atual, mes da Engex sem logo", { velho: velho.logo, atual: atualCab.logo });
+    const [laudo] = await Promise.all([ctx.waitForEvent("page", { timeout: 30000 }), p.evaluate(() => window.laudoPDF())]);
+    await laudo.waitForLoadState();
+    const lg = await laudo.$$eval(".logos img", is => is.map(i => ({ ok: i.complete && i.naturalWidth > 0, alt: i.alt })));
+    confere(lg.length === 1 && lg[0].ok && lg[0].alt === "NovaX", "laudo PDF: logo da prestadora no cabecalho", lg);
+    await laudo.close();
     confere(velho.includes("Engex Extintores") && atualCab.includes("Nova Extintores Ltda"), "relatorio: mes antigo sai com Engex, mes atual com a empresa nova", { velho, atualCab });
     /* empresa de um usuario */
     await p.evaluate(() => window.gerenciarUsuarios()); await p.waitForTimeout(1500);
