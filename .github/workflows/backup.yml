@@ -1,0 +1,47 @@
+name: Backup semanal
+# Toda segunda de manha (06h17 de Brasilia) le o Firestore e guarda o backup como
+# artefato desta execucao por 90 dias (Actions > Backup semanal > execucao > Artifacts).
+# Tambem pode ser disparado na mao em Actions > Backup semanal > Run workflow.
+# Precisa que a conta de servico do segredo FIREBASE_SERVICE_ACCOUNT tenha o papel
+# "Cloud Datastore Viewer" (Leitor do Cloud Datastore) no Google Cloud.
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar o leitor do Firestore
+        working-directory: .github/backup
+        run: npm init -y >/dev/null && npm install firebase-admin@12.7.0 --no-audit --no-fund
+      - name: Ler o banco
+        working-directory: .github/backup
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          node backup.mjs "$RUNNER_TEMP/backup_incendio_$(date -u +%F).json"
+          rm -f "$RUNNER_TEMP/sa.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backup_incendio_${{ github.run_number }}
+          path: ${{ runner.temp }}/backup_incendio_*.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Como resolver se falhar
+        if: failure()
+        run: |
+          {
+            echo "### O backup nao foi gerado"
+            echo "Se o erro fala em PERMISSION_DENIED / 403: no Google Cloud (IAM), de o papel"
+            echo "**Cloud Datastore Viewer** a conta de servico usada no segredo FIREBASE_SERVICE_ACCOUNT."
+          } >> "$GITHUB_STEP_SUMMARY"

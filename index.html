@@ -4029,14 +4029,14 @@ window.backupJSON=async()=>{
   try{
     const col=async n=>(await getDocsFromServer(collection(db,n))).docs.map(d=>({id:d.id,...d.data()}));
     const cfg=async n=>{const s=await getDocFromServer(doc(db,"config",n));return s.exists()?s.data():null;};
-    const [inspecoes,movimentacoes,condenacoes,tratativas,usuarios,cadastroExt,cadastroCustom,admins]=await Promise.all([
+    const [inspecoes,movimentacoes,condenacoes,tratativas,usuarios,cadastroExt,cadastroCustom,admins,empresas]=await Promise.all([
       col("inspecoes"),col("movimentacoes"),col("condenacoes"),col("tratativas"),col("usuarios"),
-      cfg("cadastroExt"),cfg("cadastroCustom"),cfg("admins")]);
+      cfg("cadastroExt"),cfg("cadastroCustom"),cfg("admins"),cfg("empresas")]);
     const data={geradoEm:new Date().toISOString(),versao:2,
       contagem:{inspecoes:inspecoes.length,movimentacoes:movimentacoes.length,condenacoes:condenacoes.length,
         tratativas:tratativas.length,usuarios:usuarios.length},
       inspecoes,movimentacoes,condenacoes,tratativas,usuarios,
-      config:{cadastroExt,cadastroCustom,admins},
+      config:{cadastroExt,cadastroCustom,admins,empresas},
       /* nomes antigos, para quem ja tem rotina lendo o backup v1 */
       cadastroOverrides:(cadastroExt&&cadastroExt.overrides)||{},
       observacao:"Fotos nao incluidas (colecao fotos). Inspecoes, movimentacoes, condenacoes, tratativas, usuarios e cadastro completos."};
