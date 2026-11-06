@@ -15,3 +15,6 @@ jobs:
           channelId: teste
           projectId: incendio-papirus
           expires: 30d
+          # versao fixa: a partir da 15.33 o firebase-tools passou a exigir a permissao
+          # serviceusage.services.get, que a conta de servico nao tem (deploy falhava com 403)
+          firebaseToolsVersion: 15.32.0
