@@ -56,7 +56,8 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     });
   };
 
-  const browser = await chromium.launch({ args: ["--no-proxy-server"] });
+  /* CHROMIUM_PATH: usar um Chromium ja instalado na maquina (no GitHub, o do "playwright install") */
+  const browser = await chromium.launch({ args: ["--no-proxy-server"], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
   const abre = async () => {
     const ctx = await browser.newContext({ acceptDownloads: true });
     await ctx.route(u => !u.href.startsWith("http://127.0.0.1"), async r => {
@@ -189,6 +190,79 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     const hid = await p.evaluate(() => ({ v: document.getElementById("hAbrigo").value, nc: document.getElementById("confBox").classList.contains("nc") }));
     confere(hid.v === "Não" && hid.nc, "hidrante: abrigo 'Nao' pelos botoes deixa a inspecao nao conforme", hid);
     confere(p.erros.length === 0, "tela nova sem erro de JavaScript", p.erros);
+    await ctx.close(); }
+
+  /* 6. empresas: so o dono altera; nomes de tela, inspecao e relatorio seguem a empresa */
+  HTML = preparaHtml(false); await zera();
+  const donoUid = await signUp("ederbatistelajr@gmail.com");
+  const mesAt = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
+  await escreve(async d => {
+    await F.setDoc(F.doc(d, "config", "cadastroExt"), { overrides: { "1": { num: "90301", tipo: "CO2", carga: "6KG" } } });
+    await F.setDoc(F.doc(d, "usuarios", donoUid), { nome: "Eder", perfil: "admin", email: "ederbatistelajr@gmail.com" });
+    /* inspecao antiga, sem o campo empresa: e da Engex */
+    await F.setDoc(F.doc(d, "inspecoes", "antiga"), { tipo: "ext", eqSeq: 1, eqNum: "90301", mes: "2026-08", data: "2026-08-10", criadoEm: 1, conformidade: "C", inspetor: "X" });
+  });
+  { const { ctx, p } = await abre();
+    await entra(p, "admin.teste@exemplo.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(2500);
+    confere(await p.$eval("#cardEmpresas", e => e.classList.contains("hidden")), "admin comum nao ve a area de empresas");
+    await ctx.close(); }
+  { const { ctx, p } = await abre();
+    await entra(p, "ederbatistelajr@gmail.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(3000);
+    confere(!(await p.$eval("#cardEmpresas", e => e.classList.contains("hidden"))), "ederbatistelajr ve a area de empresas");
+    await p.evaluate(() => window.editarEmpresas());
+    await p.evaluate(() => window.novaPrestadora());
+    await p.fill("#epNome1", "Nova Extintores Ltda"); await p.fill("#epCurto1", "NovaX");
+    await p.evaluate(() => window.salvaEmpresas()); await p.waitForTimeout(2500);
+    const emp = await le("config", "empresas");
+    const atual = emp && emp.prestadoras.find(x => x.id === emp.atual);
+    confere(atual && atual.nome === "Nova Extintores Ltda" && emp.prestadoras.some(x => x.id === "engex"), "empresa nova salva e a Engex fica no historico", emp);
+    const tela = await p.evaluate(() => ({ kpi: document.querySelector(".kpi .nPrest").textContent, opt: document.querySelector("option.oPrest").textContent }));
+    confere(tela.kpi === "NovaX" && tela.opt === "Reserva NovaX", "os nomes da tela passam a usar a empresa nova", tela);
+    /* nenhuma tela pode mostrar "${" (texto que o JavaScript deveria ter trocado) */
+    const sobra = [];
+    for (const t of ["tNovo", "tLista", "tVenc", "tPainel", "tCond"]) {
+      await p.click(`nav button[data-t="${t}"]`); await p.waitForTimeout(500);
+      if (await p.evaluate(() => document.getElementById("app").innerText.includes("${"))) sobra.push(t); }
+    await p.click('nav button[data-t="tNovo"]');
+    await p.evaluate(() => { window.escolheEquip("ext", "1"); window.acoesEquip(); });
+    if (await p.evaluate(() => document.getElementById("dlgBody").innerText.includes("${"))) sobra.push("acoes do equipamento");
+    await p.evaluate(() => window.fechaDlg());
+    for (const [nome, fn] of [["migrar reservas antigas", "migrarEngexAntigos"], ["correcao em lote", "corrigirLote"]]) {
+      await p.evaluate(f => window[f](), fn); await p.waitForTimeout(300);
+      const txt = await p.evaluate(() => document.getElementById("dlgBody").innerText);
+      if (txt.includes("${")) sobra.push(nome);
+      await p.evaluate(() => window.fechaDlg()); }
+    /* a pergunta de "marcar como reserva da prestadora" e um confirm(): le o texto e cancela */
+    let pergunta = "";
+    p.removeAllListeners("dialog"); p.once("dialog", d => { pergunta = d.message(); d.dismiss(); });
+    await p.evaluate(() => { window.escolheEquip("ext", "1"); return window.toggleEngex(); });
+    p.on("dialog", d => d.accept());
+    if (!pergunta.includes("NovaX") || pergunta.includes("${")) sobra.push("pergunta da reserva: " + pergunta.slice(0, 80));
+    confere(sobra.length === 0, "nenhuma tela mostra '${' sem trocar", sobra);
+    /* inspecao nova grava a empresa */
+    await p.evaluate(() => window.escolheEquip("ext", "1"));
+    await p.click('#fTipoLocal + .chips button[data-v="CO2"]'); await p.click('#cgLocal button[data-cg="6 Kg"]');
+    await p.setInputFiles("#fFoto1", path.join(RAIZ, "icon-192.png"));
+    await p.click("#btnSalvar"); await p.waitForTimeout(4000);
+    let nova = null;
+    await env.withSecurityRulesDisabled(async c => { const q = await F.getDocs(F.collection(c.firestore(), "inspecoes")); nova = q.docs.map(x => x.data()).find(x => x.mes === mesAt) || null; });
+    confere(nova && nova.empresa === "Nova Extintores Ltda" && nova.empresaCurta === "NovaX", "inspecao nova grava a empresa", nova && { e: nova.empresa, c: nova.empresaCurta });
+    /* relatorio: mes antigo = Engex, mes atual = empresa nova */
+    const ExcelJS = require("exceljs");
+    const cab = async pm => {
+      await p.evaluate(m => { const s = document.getElementById("pMes"); if (![...s.options].some(o => o.value === m)) s.add(new Option(m, m)); s.value = m; }, pm);
+      const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 30000 }), p.evaluate(() => window.exportXLSX("ext"))]);
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(await dl.path()); return String(wb.worksheets[0].getCell("A2").value); };
+    const velho = await cab("2026-08"), atualCab = await cab(mesAt);
+    confere(velho.includes("Engex Extintores") && atualCab.includes("Nova Extintores Ltda"), "relatorio: mes antigo sai com Engex, mes atual com a empresa nova", { velho, atualCab });
+    /* empresa de um usuario */
+    await p.evaluate(() => window.gerenciarUsuarios()); await p.waitForTimeout(1500);
+    const uid = await p.evaluate(() => (USERS.find(u => u.email === "admin.teste@exemplo.com") || {}).uid).catch(() => null)
+      || (await (async () => { let id = null; await env.withSecurityRulesDisabled(async c => { const q = await F.getDocs(F.collection(c.firestore(), "usuarios")); id = (q.docs.find(x => x.data().email === "admin.teste@exemplo.com") || {}).id; }); return id; })());
+    await p.evaluate(u => window.mudaEmpresaUsuario(u, "cliente"), uid); await p.waitForTimeout(1500);
+    const us = await le("usuarios", uid);
+    confere(us && us.empresa === "cliente", "dono define a empresa de um usuario", us && us.empresa);
+    confere(p.erros.length === 0, "empresas sem erro de JavaScript", p.erros);
     await ctx.close(); }
 
   await browser.close(); await env.cleanup(); servidor.close();
