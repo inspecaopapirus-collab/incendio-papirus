@@ -111,6 +111,8 @@ img{max-width:100%}
 #login{max-width:380px;margin:10vh auto;padding:0 16px}
 #login .card{padding:30px;border-radius:22px}
 #login .logo{width:64px;height:64px;border-radius:16px;background:var(--vinho);color:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+#login .logoPapirus{display:block;width:160px;height:auto;margin:0 auto 14px}
+header .marca img{width:28px;height:auto;display:block}
 #login h2{color:var(--vinho);text-align:center;font-weight:700;font-size:26px;margin-bottom:2px}
 #login p{font-size:15px;color:var(--cinza);text-align:center;margin-bottom:14px}
 .hint{font-size:12px;color:#c0392b;margin-top:10px;text-align:center;min-height:16px}
@@ -343,7 +345,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
 
 <div id="login">
  <div class="card">
- <div class="logo" aria-hidden="true"><svg class="i" style="width:34px;height:34px"><use href="#i-ext"/></svg></div>
+ <img class="logoPapirus" src="logo-papirus.svg" alt="Papirus" width="160" height="85">
  <h2>Combate a Incêndio</h2>
  <p>Papirus · Inspeção de extintores e hidrantes</p>
  <label>E-mail</label><input id="lEmail" type="email" autocomplete="username">
@@ -355,7 +357,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
 
 <div id="app" class="hidden">
 <header>
- <div class="marca" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg></div>
+ <div class="marca"><img src="papirus-simbolo.svg" alt="Papirus" width="28" height="23"></div>
  <div class="htit"><h1>Combate a Incêndio</h1><span class="hsub">Papirus · Inspeção</span><small id="filaOff" style="font-size:12px;display:none;margin-top:3px;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px"></small></div>
  <div id="hLogo" class="hlogo hidden"></div>
  <div class="umenu">
@@ -3703,7 +3705,7 @@ window._AUDIT_FALHAS=[];
    Cada erro de JavaScript (e cada console.error do proprio app) vira um registro em
    "erros", para o admin ver falhas de campo antes de alguem reclamar. No maximo 15
    por sessao e sem repetir a mesma mensagem; ruido de rede do Firebase fica de fora. */
-const VERSAO_APP="v21";
+const VERSAO_APP="v22";
 const COL_ERROS=MODO_TESTE?"teste_erros":"erros";
 const _errosVistos=new Set();let _errosN=0,_gravandoErro=false;
 const _RUIDO=/Could not reach Cloud Firestore|offline|ResizeObserver loop|network-request-failed|unavailable|Failed to fetch|Load failed|AbortError|QuotaExceeded.*IndexedDB|Script error\.?$/i;
