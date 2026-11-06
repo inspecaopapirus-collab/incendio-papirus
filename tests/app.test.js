@@ -142,6 +142,21 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     confere(kpis.Inspecionados === "1" && parseInt(kpis.Cobertura) <= 100, "laudo: 1 ponto inspecionado e cobertura ate 100%", kpis);
     await p.evaluate(() => window.renderVenc());
     confere((await p.$eval("#vencExt", e => e.textContent)).length > 0, "aba de vencimentos monta sem erro");
+    /* graficos: os meses fora das 400 mais recentes sao buscados ao abrir */
+    await p.click('nav button[data-t="tPainel"]'); await p.waitForTimeout(500);
+    await p.evaluate(() => window.carregaGraficos()); await p.waitForTimeout(1500);
+    const graf = await p.evaluate(() => ({ barras: document.querySelectorAll("#graf1 .gbar").length, texto: document.getElementById("graf1").textContent,
+      area: document.getElementById("pendBox").innerText.includes("Progresso por área"), areas: document.querySelectorAll("#pendBox .pendDet .gbar").length }));
+    confere(graf.barras === 6 && /% da rota/.test(graf.texto) && !/ainda não foram carregados/.test(graf.texto), "graficos: 6 meses com rota e conformidade, meses antigos carregados", graf);
+    confere(graf.area && graf.areas > 0, "painel: progresso por area", graf);
+    /* erros dos aparelhos */
+    await p.evaluate(() => console.error("[teste] falhou", new Error("falha simulada no teste")));
+    await p.waitForTimeout(1500);
+    let errs = []; await escreve(async d => { const q = await F.getDocs(F.collection(d, "erros")); errs = q.docs.map(x => x.data()); });
+    confere(errs.length === 1 && errs[0].msg === "falha simulada no teste" && errs[0].email === "admin.teste@exemplo.com", "erro do aparelho registrado", errs);
+    await p.evaluate(() => window.verErros()); await p.waitForTimeout(1500);
+    confere((await p.textContent("#dlgBody")).includes("falha simulada no teste"), "admin ve os erros dos aparelhos");
+    await p.evaluate(() => window.fechaDlg());
     confere(p.erros.length === 0, "relatorios sem erro de JavaScript", p.erros);
     await ctx.close(); }
 
@@ -240,6 +255,14 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     confere(nomeFicou === "Nova Extintores Ltda" && /^data:image\/png;base64,/.test(atual && atual.logo || "") && atual.logoW > 0 && atual.logoW <= 480,
       "logo da prestadora salvo (reduzido) sem perder o que foi digitado", atual && { nomeFicou, w: atual.logoW, h: atual.logoH, tam: (atual.logo || "").length });
     confere(await p.$eval("#empLogoPrev", e => !e.classList.contains("hidden") && !!e.querySelector("img")), "cartao de empresas mostra o logo atual");
+    confere(await p.$eval("#hLogo", e => !e.classList.contains("hidden") && e.querySelector("img").alt === "NovaX"), "logo da prestadora no topo do app");
+    /* FOTOS=pasta: guarda telas para conferir o layout (nao roda no GitHub) */
+    if (process.env.FOTOS) { await p.setViewportSize({ width: 360, height: 760 });
+      await p.click('nav button[data-t="tPainel"]'); await p.waitForTimeout(800);
+      await p.evaluate(() => { document.querySelectorAll("#pendBox .pendDet")[0].open = true; const g = document.querySelector('details[ontoggle*="carregaGraficos"]'); g.open = true; });
+      await p.waitForTimeout(1500);
+      await p.screenshot({ path: path.join(process.env.FOTOS, "painel.png"), fullPage: true });
+      await p.setViewportSize({ width: 1280, height: 800 }); }
     const tela = await p.evaluate(() => ({ kpi: document.querySelector(".kpi .nPrest").textContent, opt: document.querySelector("option.oPrest").textContent }));
     confere(tela.kpi === "NovaX" && tela.opt === "Reserva NovaX", "os nomes da tela passam a usar a empresa nova", tela);
     /* nenhuma tela pode mostrar "${" (texto que o JavaScript deveria ter trocado) */

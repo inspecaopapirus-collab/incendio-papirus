@@ -69,6 +69,11 @@ const F = require("firebase/firestore");
     ["Inspetor atualiza o proprio nome (empresa intacta)", true, () => F.setDoc(F.doc(insp2, "usuarios", "insp2"), { nome: "Insp 2", ultimoAcesso: 2 }, { merge: true })],
     ["Admin comum cria usuario ja com empresa", false, () => F.setDoc(F.doc(adm, "usuarios", "n2"), { nome: "N2", perfil: "inspetor", empresa: "nova" })],
     ["Dono cria usuario com empresa", true, () => F.setDoc(F.doc(dono, "usuarios", "n3"), { nome: "N3", perfil: "inspetor", empresa: "nova" })],
+    ["Inspetor registra um erro do aparelho", true, () => F.setDoc(F.doc(insp2, "erros", "e1"), { origem: "erro", msg: "x", stack: "", extra: "", email: "insp@x.com", nome: "Insp", versao: "v21", tela: "tNovo", online: true, ua: "ua", em: 1 })],
+    ["Inspetor registra erro com campo estranho", false, () => F.setDoc(F.doc(insp2, "erros", "e2"), { msg: "x", lixo: 1 })],
+    ["Inspetor le os erros", false, () => F.getDoc(F.doc(insp2, "erros", "e1"))],
+    ["Admin le e apaga os erros", true, async () => { await F.getDoc(F.doc(adm, "erros", "e1")); await F.deleteDoc(F.doc(adm, "erros", "e1")); }],
+    ["Estranho registra erro", false, () => F.setDoc(F.doc(estranho, "erros", "e3"), { msg: "x" })],
   ];
   let falhas = 0;
   for (const [desc, deveria, fn] of casos) {

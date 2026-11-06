@@ -30,6 +30,9 @@ header .marca{width:36px;height:36px;border-radius:9px;background:#fff;color:var
 header .htit{flex:1;min-width:0}
 header h1{font-size:18px;font-weight:700;line-height:1.15}
 header .hsub{font-size:13px;opacity:.85;display:block}
+header .hlogo{background:#fff;border-radius:8px;padding:3px 6px;height:36px;display:flex;align-items:center;flex-shrink:0;max-width:96px}
+header .hlogo img{max-height:30px;max-width:84px;object-fit:contain;display:block}
+@media (max-width:420px){header:has(.hlogo:not(.hidden)) h1{font-size:15.5px;white-space:nowrap}header .hlogo{max-width:60px;padding:3px 4px}header .hlogo img{max-width:52px}}
 .hbtn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);color:#fff;padding:7px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;transition:.2s}
 .hbtn:hover{background:rgba(255,255,255,.25)}
 nav{display:flex;background:#fff;border-bottom:1px solid var(--borda);position:sticky;top:60px;z-index:40}
@@ -248,6 +251,10 @@ details.dobra .dobraIn{padding:0 18px 18px}
 .gbar .gl span:last-child{flex:0 0 auto;color:var(--cinza)}
 .gbar .gt{background:#eee;border-radius:6px;height:14px;overflow:hidden}
 .gbar .gt>div{height:100%}
+.gbar .gt.dupla{height:18px;display:flex;flex-direction:column;gap:2px;background:none}
+.gbar .gt.dupla>div{height:8px;border-radius:4px}
+.gleg{display:flex;gap:14px;font-size:12.5px;color:var(--cinza);margin:6px 0 2px}
+.gleg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 /* ---------- Identidade 2026: tela de inspecao ---------- */
 .sr{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;border:0!important;min-height:0!important}
 #tNovo>.seg{margin-bottom:14px}
@@ -350,6 +357,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
 <header>
  <div class="marca" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg></div>
  <div class="htit"><h1>Combate a Incêndio</h1><span class="hsub">Papirus · Inspeção</span><small id="filaOff" style="font-size:12px;display:none;margin-top:3px;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px"></small></div>
+ <div id="hLogo" class="hlogo hidden"></div>
  <div class="umenu">
   <button type="button" id="uBtn" class="avatar" onclick="menuUsuario(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="uMenu" aria-label="Menu do usuário">·</button>
   <div id="uMenu" class="uMenu hidden" role="menu">
@@ -534,8 +542,8 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <details class="dobra hidden" id="resBox"></details>
  <details class="dobra hidden" id="manutBox"></details>
  <details class="dobra hidden" id="engexBox"></details>
- <details class="dobra">
- <summary><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg>Gráficos<small>Conformidade por mês e não conformidades por área</small></summary>
+ <details class="dobra" ontoggle="if(this.open)carregaGraficos()">
+ <summary><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg>Gráficos<small>Rota e conformidade por mês, não conformidades por área</small></summary>
  <div class="dobraIn"><div id="graf1"></div><div id="graf2" style="margin-top:18px"></div></div>
  </details>
  <details class="dobra">
@@ -645,8 +653,9 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </div>
  </div>
  <details class="dobra adminOnly hidden">
- <summary><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg>Manutenção do sistema<small>Backup e reinício — ações delicadas</small></summary>
+ <summary><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg>Manutenção do sistema<small>Erros dos aparelhos, backup e reinício</small></summary>
  <div class="dobraIn">
+ <button class="btn sec" onclick="verErros()"><svg class="i" aria-hidden="true"><use href="#i-signal"/></svg>Erros dos aparelhos</button>
  <button class="btn sec" onclick="backupJSON()"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg>Backup (JSON)</button>
  <button class="btn sec" style="border-color:var(--cd);color:var(--cd)" onclick="zerarSistema()"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>Zerar dados (recomeçar)</button>
  </div>
@@ -1698,6 +1707,8 @@ function pintaNomesEmpresa(){
   document.querySelectorAll(".nPrest").forEach(e=>e.textContent=PNT());
   document.querySelectorAll(".nPrestCompleto").forEach(e=>e.textContent=PREST().nome);
   document.querySelectorAll("option.oPrest").forEach(e=>e.textContent="Reserva "+PNT());
+  const hl=$("hLogo");if(hl){const l=PREST().logo;hl.classList.toggle("hidden",!l);
+    hl.innerHTML=l?`<img src="${esc(l)}" alt="${esc(PNT())}">`:"";hl.title=l?"Prestadora: "+PREST().nome:"";}
   const lp=$("empLogoPrev");if(lp){const l=PREST().logo;lp.classList.toggle("hidden",!l);lp.innerHTML=l?`<img src="${esc(l)}" alt="Logo da prestadora atual">`:"";}}
 let _empEd=null;
 window.editarEmpresas=()=>{
@@ -2862,6 +2873,7 @@ window.render=()=>{
     <div class="rotaNum"><b>${inspRota}</b><span>de ${tot} pontos inspecionados</span></div>
     <div class="barra" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Cobertura da rota"><div style="width:${pct}%"></div></div>
     <div style="font-size:14px;color:var(--texto2);margin-bottom:6px">${pct}% da rota${pendTotal?` · faltam <b>${pendTotal}</b> pontos`:" · rota completa"}</div>
+    ${tot?`<details class="pendDet"${PROG_AREA_ABERTO?" open":""} ontoggle="PROG_AREA_ABERTO=this.open"><summary>Progresso por área</summary>${progressoPorArea(extRota,hidRota,inspEq)}</details>`:""}
     ${pendTotal?`<details class="pendDet"><summary>Ver pendências por área</summary>
     <b style="font-size:14px;color:var(--vinho);display:block;margin-top:10px">Extintores — ${pendExt.length} pendentes</b>
     ${blocoRota(pendExt,"extintores")}
@@ -2883,16 +2895,51 @@ window.irPara=(t,id)=>{
   document.querySelector('nav button[data-t="tNovo"]').click();
   window.scrollTo({top:0,behavior:"smooth"});};
 
+/* barras de rota por area: as mais atrasadas primeiro */
+let PROG_AREA_ABERTO=false;
+function progressoPorArea(extRota,hidRota,inspEq){
+  const a={};
+  const soma=(loc,feito)=>{const k=normRota(loc||"Sem área");(a[k]=a[k]||{t:0,f:0}).t++;if(feito)a[k].f++;};
+  extRota.forEach(e=>soma(e.loc,inspEq.has("ext_"+e.seq)));
+  hidRota.forEach(h=>soma(h.loc,inspEq.has("hid_"+h.seq)));
+  return Object.entries(a).map(([k,v])=>({k,...v,p:Math.round(100*v.f/v.t)}))
+    .sort((x,y)=>x.p-y.p||x.k.localeCompare(y.k,"pt"))
+    .map(x=>`<div class="gbar"><div class="gl"><span>${esc(x.k)}</span><span><b>${x.f}</b> de ${x.t}${x.p===100?" ✓":""}</span></div>
+      <div class="gt"><div style="width:${x.p}%;background:${x.p===100?"var(--ok)":x.p>=50?"var(--warn)":"var(--nc)"}"></div></div></div>`).join("");}
+/* pontos que entram na rota de um mes (mesma regra do Painel e do laudo) */
+function rotaDoMes(pm){
+  return {ext:CAD.ext.filter(e=>(!isReserva(e)||e.num)&&!ehCondenado(e)&&!emManutencao(e)&&jaExistiaEm(e,pm)),
+          hid:CAD.hid.filter(h=>jaExistiaEm(h,pm))};}
+/* numeros de um mes: cobertura da rota e conformidade pela inspecao mais recente de cada ponto */
+function numerosDoMes(pm){
+  const mes=ITENS.filter(i=>i.mes===pm),r=rotaDoMes(pm),ult=new Map();
+  mes.forEach(i=>{const k=i.tipo+"_"+(i.eqSeq??i.eqPat),a=ult.get(k);
+    if(!a||String(i.data||"")>String(a.data||"")||(String(i.data||"")===String(a.data||"")&&(i.criadoEm||0)>(a.criadoEm||0)))ult.set(k,i);});
+  const tot=r.ext.length+r.hid.length;
+  const insp=r.ext.filter(e=>ult.has("ext_"+e.seq)).length+r.hid.filter(h=>ult.has("hid_"+h.seq)).length;
+  const atual=[...ult.values()],nc=atual.filter(i=>i.conformidade==="NC").length;
+  return {tot,insp,cob:tot?Math.round(100*insp/tot):0,n:atual.length,nc,conf:atual.length?Math.round(100*(atual.length-nc)/atual.length):null};}
+const MESES_GRAF=()=>{const d=new Date(),ms=[];for(let i=5;i>=0;i--)ms.push(dataLocal(new Date(d.getFullYear(),d.getMonth()-i,1)).slice(0,7));return ms;};
+/* O app so carrega as 400 inspecoes mais recentes: os meses mais antigos do grafico
+   saiam "sem inspecao" ou pela metade. Quando faltam meses, eles sao buscados ao abrir
+   os graficos (uma vez por sessao). */
+let _grafCarregando=false;
+window.carregaGraficos=async()=>{
+  if(_grafCarregando||(SNAP_OK&&!TRUNCADO))return desenhaGraficos();
+  _grafCarregando=true;
+  try{for(const m of MESES_GRAF())await garanteMes(m);}finally{_grafCarregando=false;}
+  desenhaGraficos();};
 function desenhaGraficos(){
   const g1=$("graf1"),g2=$("graf2");if(!g1)return;
-  const meses=[];const d=new Date();
-  for(let i=5;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1);meses.push(dataLocal(m).slice(0,7));}
-  g1.innerHTML="<b>📈 Conformidade por mês</b><br>"+meses.map(m=>{
-    const arr=ITENS.filter(i=>i.mes===m);const nc=arr.filter(i=>i.conformidade==="NC").length;
-    const pc=arr.length?Math.round(100*(arr.length-nc)/arr.length):0;
+  const meses=MESES_GRAF();
+  const faltam=TRUNCADO&&meses.some(m=>!MESES_CARREGADOS.has(m));
+  g1.innerHTML="<b>📈 Evolução dos últimos 6 meses</b>"
+    +`<div class="gleg"><span><i style="background:var(--vinho)"></i>Rota cumprida</span><span><i style="background:var(--ok)"></i>Conformidade</span></div>`
+    +(faltam?`<p style="font-size:13px;color:var(--cinza);margin:6px 0">${_grafCarregando?"Carregando os meses anteriores…":"Os meses mais antigos ainda não foram carregados."}</p>`:"")
+    +meses.map(m=>{const x=numerosDoMes(m);
     return `<div class="gbar"><div class="gl"><span>${mesExtenso(m)}</span>
-      <span>${arr.length?`${pc}% conforme · ${nc} NC`:"sem inspeção"}</span></div>
-      <div class="gt"><div style="width:${arr.length?pc:0}%;background:var(--ok)"></div></div></div>`;}).join("");
+      <span>${x.n?`${x.cob}% da rota · ${x.conf}% conforme${x.nc?` · ${x.nc} NC`:""}`:"sem inspeção"}</span></div>
+      ${x.n?`<div class="gt dupla"><div style="width:${x.cob}%;background:var(--vinho)"></div><div style="width:${x.conf??0}%;background:var(--ok)"></div></div>`:""}</div>`;}).join("");
   const por={};ITENS.filter(i=>i.conformidade==="NC").forEach(i=>{const a=normRota(i.eqLoc);por[a]=(por[a]||0)+1;});
   const tops=Object.entries(por).sort((a,b)=>b[1]-a[1]).slice(0,8);const mx=tops.length?tops[0][1]:1;
   g2.innerHTML="<b>🚩 Não conformidades por área (acumulado)</b><br>"+(tops.length?tops.map(([a,n])=>
@@ -3652,6 +3699,56 @@ window._AUDIT_FALHAS=[];
    nove acoes como se tivessem valido, sem nenhuma marca de que ficaram pendentes.
    Nao deixamos de registrar: registrar so o que confirmou perderia acoes que sobem
    depois. Registra tudo, e diz quais ainda nao confirmaram. */
+/* ================= Erros dos aparelhos =================
+   Cada erro de JavaScript (e cada console.error do proprio app) vira um registro em
+   "erros", para o admin ver falhas de campo antes de alguem reclamar. No maximo 15
+   por sessao e sem repetir a mesma mensagem; ruido de rede do Firebase fica de fora. */
+const VERSAO_APP="v21";
+const COL_ERROS=MODO_TESTE?"teste_erros":"erros";
+const _errosVistos=new Set();let _errosN=0,_gravandoErro=false;
+const _RUIDO=/Could not reach Cloud Firestore|offline|ResizeObserver loop|network-request-failed|unavailable|Failed to fetch|Load failed|AbortError|QuotaExceeded.*IndexedDB|Script error\.?$/i;
+function registraErro(origem,erro,extra){
+  try{
+    if(_gravandoErro||!auth||!auth.currentUser||BLOQUEADO||SEM_CADASTRO)return;
+    const msg=String((erro&&(erro.message||erro.code))||erro||"").slice(0,500);
+    if(!msg||_RUIDO.test(msg)||_errosN>=15)return;
+    const chave=origem+"|"+msg;if(_errosVistos.has(chave))return;
+    _errosVistos.add(chave);_errosN++;
+    _gravandoErro=true;
+    const reg={origem:String(origem).slice(0,80),msg,stack:String(erro&&erro.stack||"").slice(0,1500),
+      extra:extra?String(extra).slice(0,300):"",email:auth.currentUser.email||"",nome:NOME||"",
+      versao:VERSAO_APP,tela:String(document.querySelector("nav button.on")?.dataset.t||""),
+      online:navigator.onLine,ua:String(navigator.userAgent||"").slice(0,200),em:Date.now()};
+    const pr=addDoc(collection(db,COL_ERROS),reg);if(pr&&pr.catch)pr.catch(()=>{});
+  }catch(e){}finally{_gravandoErro=false;}}
+window.addEventListener("error",ev=>registraErro("erro",ev.error||ev.message,ev.filename?`${String(ev.filename).split("/").pop()}:${ev.lineno}`:""));
+window.addEventListener("unhandledrejection",ev=>registraErro("promessa",ev.reason));
+{const _ce=console.error.bind(console);
+  console.error=(...a)=>{_ce(...a);
+    try{const rot=typeof a[0]==="string"?a[0]:"console";const e=a.find(x=>x&&(x.message||x.code))||a[1]||a[0];
+      if(!(typeof a[0]==="string"&&/^@firebase/.test(a[0])))registraErro(rot.slice(0,80),e);}catch(x){}};}
+window.verErros=async()=>{
+  if(!ISADMIN)return;
+  $("dlgBody").innerHTML=`<h3>Erros dos aparelhos</h3><p style="color:var(--cinza)">Carregando…</p>`;$("dlg").showModal();
+  try{
+    const snap=await getDocs(query(collection(db,COL_ERROS),orderBy("em","desc"),limit(60)));
+    const L=snap.docs.map(d=>({id:d.id,...d.data()}));
+    window._ERROS_VISTOS=L.map(x=>x.id);
+    $("dlgBody").innerHTML=`<h3>Erros dos aparelhos</h3>
+      <p style="font-size:14px;color:var(--cinza);line-height:1.6">Falhas que aconteceram nos celulares e computadores (as 60 mais recentes).
+        Se algo se repetir, mande a mensagem para o suporte.</p>
+      ${L.length?L.map(e=>`<div class="venc" style="display:block"><b style="color:var(--nc)">${esc(e.msg)}</b>
+        <br><small style="color:var(--cinza)">${new Date(e.em).toLocaleString("pt-BR")} · ${esc(e.nome||e.email||"—")} · ${esc(e.origem)}${e.tela?` · tela ${esc(e.tela)}`:""}${e.online===false?" · sem internet":""} · ${esc(e.versao||"")}</small>
+        ${e.extra?`<br><small style="color:var(--cinza)">${esc(e.extra)}</small>`:""}</div>`).join("")
+        :`<div class="vazio"><span class="ic">✅</span><b>Nenhum erro registrado</b><p>Os aparelhos não relataram falhas.</p></div>`}
+      ${L.length?`<button class="btn sec" onclick="limpaErros()">Limpar esta lista</button>`:""}
+      <button class="btn sec" onclick="fechaDlg()">Fechar</button>`;
+  }catch(e){$("dlgBody").innerHTML=`<h3>Erros dos aparelhos</h3><p>Não consegui ler: ${esc(e.code||e.message)}</p><button class="btn sec" onclick="fechaDlg()">Fechar</button>`;}};
+window.limpaErros=async()=>{
+  if(!ISADMIN||!podeGravar()||!confirm("Apagar os erros mostrados? Eles já foram vistos."))return;
+  const ids=window._ERROS_VISTOS||[];let n=0;
+  for(const id of ids){try{await comTimeout(deleteDoc(doc(db,COL_ERROS,id)));n++;}catch(e){}}
+  toast(`🧹 ${n} erro(s) apagado(s).`);verErros();};
 function audit(acao,det,ok){
   try{
     const reg={acao,det:det||null,email:auth.currentUser?.email||"",nome:NOME||"",em:Date.now()};
@@ -3932,14 +4029,14 @@ window.backupJSON=async()=>{
   try{
     const col=async n=>(await getDocsFromServer(collection(db,n))).docs.map(d=>({id:d.id,...d.data()}));
     const cfg=async n=>{const s=await getDocFromServer(doc(db,"config",n));return s.exists()?s.data():null;};
-    const [inspecoes,movimentacoes,condenacoes,tratativas,usuarios,cadastroExt,cadastroCustom,admins]=await Promise.all([
+    const [inspecoes,movimentacoes,condenacoes,tratativas,usuarios,cadastroExt,cadastroCustom,admins,empresas]=await Promise.all([
       col("inspecoes"),col("movimentacoes"),col("condenacoes"),col("tratativas"),col("usuarios"),
-      cfg("cadastroExt"),cfg("cadastroCustom"),cfg("admins")]);
+      cfg("cadastroExt"),cfg("cadastroCustom"),cfg("admins"),cfg("empresas")]);
     const data={geradoEm:new Date().toISOString(),versao:2,
       contagem:{inspecoes:inspecoes.length,movimentacoes:movimentacoes.length,condenacoes:condenacoes.length,
         tratativas:tratativas.length,usuarios:usuarios.length},
       inspecoes,movimentacoes,condenacoes,tratativas,usuarios,
-      config:{cadastroExt,cadastroCustom,admins},
+      config:{cadastroExt,cadastroCustom,admins,empresas},
       /* nomes antigos, para quem ja tem rotina lendo o backup v1 */
       cadastroOverrides:(cadastroExt&&cadastroExt.overrides)||{},
       observacao:"Fotos nao incluidas (colecao fotos). Inspecoes, movimentacoes, condenacoes, tratativas, usuarios e cadastro completos."};
