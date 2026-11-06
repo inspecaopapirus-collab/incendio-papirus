@@ -15,6 +15,11 @@ jobs:
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
           channelId: live
           projectId: incendio-papirus
+          # versao fixa: a ultima que publicou o site (29/09/2026). As versoes seguintes passaram
+          # a exigir a permissao serviceusage.services.get, que a conta de servico nao tem,
+          # e o deploy falhava com 403. Pode voltar para "latest" depois de dar o papel
+          # "Service Usage Consumer" a conta de servico.
+          firebaseToolsVersion: 15.32.0
 
   # Publica o firestore.rules (antes era copiar e colar no Console). Antes de publicar,
   # roda os testes das regras no emulador: regra quebrada nao chega ao banco.
