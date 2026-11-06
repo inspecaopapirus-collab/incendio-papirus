@@ -105,6 +105,16 @@ service cloud.firestore {
       allow read: if ehAdmin();
       allow update, delete: if false;
     }
+    // Erros que os aparelhos registram: todos criam (com tamanho limitado); só admin lê e limpa
+    match /erros/{id} {
+      allow create: if ativo()
+        && request.resource.data.keys().hasOnly(['origem', 'msg', 'stack', 'extra', 'email', 'nome', 'versao', 'tela', 'online', 'ua', 'em'])
+        && request.resource.data.msg is string && request.resource.data.msg.size() <= 500
+        && request.resource.data.get('stack', '').size() <= 1500;
+      allow read: if ehAdmin();
+      allow delete: if ehAdmin() && podeGravar();
+      allow update: if false;
+    }
     // Assinaturas diárias dos inspetores
     match /assinaturas/{id} {
       allow read, create: if ativo();

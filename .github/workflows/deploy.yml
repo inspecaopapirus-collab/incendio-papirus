@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -14,3 +15,44 @@ jobs:
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
           channelId: live
           projectId: incendio-papirus
+
+  # Publica o firestore.rules (antes era copiar e colar no Console). Antes de publicar,
+  # roda os testes das regras no emulador: regra quebrada nao chega ao banco.
+  # Precisa que a conta de servico do segredo FIREBASE_SERVICE_ACCOUNT tenha os papeis
+  # "Firebase Rules Admin" e "Service Usage Consumer" no Google Cloud.
+  regras:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Testar as regras no emulador
+        working-directory: tests
+        run: |
+          npm install --no-audit --no-fund
+          npx firebase emulators:exec --only firestore --project demo-regras "npm run test:regras"
+      - name: Publicar as regras no Firestore
+        working-directory: tests
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          cd .. && tests/node_modules/.bin/firebase deploy --only firestore:rules --project incendio-papirus --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"
+      - name: Como resolver se falhar
+        if: failure()
+        run: |
+          {
+            echo "### As regras do Firestore nao foram publicadas"
+            echo "O site foi publicado normalmente (job separado). Se o erro fala em permissao (403):"
+            echo "no Google Cloud (IAM), de a conta de servico do segredo FIREBASE_SERVICE_ACCOUNT"
+            echo "os papeis **Firebase Rules Admin** e **Service Usage Consumer**."
+            echo "Enquanto isso, publique copiando o firestore.rules no Console do Firebase."
+          } >> "$GITHUB_STEP_SUMMARY"
