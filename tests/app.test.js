@@ -320,6 +320,45 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     confere(p.erros.length === 0, "empresas sem erro de JavaScript", p.erros);
     await ctx.close(); }
 
+  /* 7. troca de prestadora: cada cilindro em recarga / reserva emprestada mostra a empresa com quem esta */
+  HTML = preparaHtml(false); await zera();
+  await escreve(async d => {
+    await F.setDoc(F.doc(d, "config", "empresas"), { atual: "rbr", prestadoras: [
+      { id: "engex", nome: "Engex Extintores e Equipamentos", curto: "Engex" },
+      { id: "rbr", nome: "RBR Extintores", curto: "RBR", desde: "2026-11-01" }] });
+    await F.setDoc(F.doc(d, "config", "cadastroExt"), { overrides: {
+      /* registros antigos, sem a empresa gravada: vale a data */
+      "2": { manut: true, manutDesde: "2026-10-15", manutDe: 30, manutLoc: "Ext 30 — Caldeira" },
+      "3": { manut: true, manutDesde: "2026-11-05", manutDe: 31, manutLoc: "Ext 31 — Expedição" },
+      "4": { engex: true, engexDesde: "2026-09-01" },
+      "5": { num: "77777", tipo: "AP", carga: "10L" } } });
+  });
+  { const { ctx, p } = await abre();
+    await entra(p, "admin.teste@exemplo.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(3000);
+    const nomeManut = async seq => { await p.evaluate(s => window.escolheEquip("ext", s), seq); await p.waitForTimeout(400);
+      const m = (await p.evaluate(() => document.getElementById("app").innerText)).match(/EM MANUTENÇÃO na (\S+)/); return m && m[1]; };
+    confere(await nomeManut("2") === "Engex", "cilindro que saiu em outubro (sem empresa gravada) aparece na Engex", await nomeManut("2"));
+    confere(await nomeManut("3") === "RBR", "cilindro que saiu em novembro aparece na RBR", await nomeManut("3"));
+    const caixa = await p.evaluate(() => document.getElementById("manutBox").textContent);
+    confere(caixa.includes("Engex / RBR") || caixa.includes("RBR / Engex"), "painel: 'Em recarga na Engex / RBR'", caixa.slice(0, 120));
+    const res = await p.evaluate(() => document.getElementById("engexBox").textContent);
+    confere(res.includes("Engex") && !res.includes("RBR"), "reserva emprestada em setembro continua como Engex", res.slice(0, 120));
+    /* tela do cilindro e correcao manual pelo admin */
+    await p.evaluate(() => window.escolheEquip("ext", "2")); await p.waitForTimeout(500);
+    const tela = await p.evaluate(() => document.getElementById("app").innerText);
+    confere(tela.includes("EM MANUTENÇÃO na Engex desde 15/10/2026"), "tela do cilindro: 'em manutenção na Engex desde 15/10/2026'");
+    await p.evaluate(() => window.trocaEmpresaReg("manutEmp")); await p.selectOption("#teEmp", "rbr");
+    await p.evaluate(() => window.salvaEmpresaReg("manutEmp")); await p.waitForTimeout(1500);
+    const o2 = (await le("config", "cadastroExt")).overrides["2"];
+    confere(o2.manutEmp === "rbr" && o2.manutDesde === "2026-10-15", "admin corrige a empresa de um cilindro sem mexer na data", o2);
+    /* marcar reserva agora: grava a empresa atual na reserva e no cilindro que foi para recarga */
+    await p.evaluate(() => { window.escolheEquip("ext", "5"); return window.toggleEngex(); }); await p.waitForTimeout(3500);
+    const ov = (await le("config", "cadastroExt")).overrides;
+    const foi = Object.values(ov).find(x => x.manut && x.manutDe === 5);
+    confere(ov["5"].engex === true && ov["5"].engexEmp === "rbr" && foi && foi.manutEmp === "rbr", "reserva marcada hoje grava a empresa (RBR) nos dois registros", { r: ov["5"], foi });
+    confere(p.erros.length === 0, "troca de prestadora sem erro de JavaScript", p.erros);
+    await ctx.close(); }
+
   await browser.close(); await env.cleanup(); servidor.close();
   console.log(`\nApp: ${falhas ? falhas + " falha(s)" : "tudo como esperado"}`);
   process.exit(falhas ? 1 : 0);

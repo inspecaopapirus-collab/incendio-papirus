@@ -954,6 +954,20 @@ function prestadoraObjDoMes(pm){
   const n={};ITENS.forEach(i=>{if(i.mes===pm){const id=i.empresaId||PRESTADORA_HISTORICA.id;n[id]=(n[id]||0)+1;}});
   const id=Object.keys(n).sort((a,b)=>n[b]-n[a])[0];
   return id?((EMPRESAS.prestadoras||[]).find(p=>p.id===id)||(id===PRESTADORA_HISTORICA.id?PRESTADORA_HISTORICA:null)):PREST();}
+/* Empresa de cada cilindro em manutencao (manutEmp) e de cada reserva emprestada (engexEmp).
+   Antes so a data era gravada e a tela mostrava sempre a prestadora ATUAL: quando a RBR virou
+   a atual, os cilindros que estavam na Engex passaram a aparecer como "na RBR". Agora a empresa
+   e gravada no registro; os antigos, sem esse campo, usam a prestadora que tinha contrato na
+   data (campo "Inicio do contrato" de cada prestadora; antes do primeiro inicio, a Engex). */
+const prestadoraPorId=id=>id?((EMPRESAS.prestadoras||[]).find(p=>p.id===id)||(id===PRESTADORA_HISTORICA.id?PRESTADORA_HISTORICA:null)):null;
+function prestadoraNaData(d){
+  const ps=(EMPRESAS.prestadoras||[]).filter(p=>p.desde&&d&&p.desde<=String(d).slice(0,10))
+    .sort((a,b)=>String(b.desde).localeCompare(String(a.desde)));
+  return ps[0]||prestadoraPorId(PRESTADORA_HISTORICA.id)||PRESTADORA_HISTORICA;}
+const empManut=e=>prestadoraPorId(e&&e.manutEmp)||prestadoraNaData(e&&e.manutDesde);
+const empReserva=e=>prestadoraPorId(e&&e.engexEmp)||prestadoraNaData(e&&e.engexDesde);
+const curtoT=p=>(p&&(p.curto||p.nome))||PNT();
+const curtoE=p=>esc(curtoT(p));
 /* tamanho do logo dentro de uma caixa, mantendo a proporcao */
 function cabeLogo(o,maxW,maxH){const w=+o?.logoW||maxW,h=+o?.logoH||maxH,k=Math.min(maxW/w,maxH/h,1);
   return {width:Math.round(w*k),height:Math.round(h*k)};}
@@ -1208,7 +1222,7 @@ function itemBusca(e){
     return `<span class="t">${esc(e.pat)}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;
   const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`
     :(emManutencao(e)?` <span class="badge b-manut">🔧 EM MANUTENÇÃO</span>`
-    :(e.engex?` <span class="badge b-engex">${PN().toUpperCase()}</span>`:""));
+    :(e.engex?` <span class="badge b-engex">${curtoE(empReserva(e)).toUpperCase()}</span>`:""));
   if(isReserva(e))
     return `<span class="t">Nº ${esc(String(e.num??"—"))}${selo}</span>`
       +`<span class="s">${e.num?`${esc(e.tipo||"")} ${esc(String(e.carga??""))} · pool de reserva`:"vaga de reserva vazia"}</span>`;
@@ -1296,10 +1310,10 @@ function mostraPadrao(){
           <b>Se o cilindro que está fisicamente aqui é o Nº ${esc(String(EQ.num))}</b>, toque abaixo e escolha esse mesmo número — o sistema confirma aqui e limpa a outra posição.
           <br><button type="button" class="abtn" style="margin-top:8px" onclick="corrigirLocal()">🔎 Resolver a duplicidade</button></div>`;})()}
       ${!EQ.num&&!isReserva(EQ)&&!EQ.engex?`<br><b style="color:var(--warn)">⚠️ Local vazio — abra "Ações do equipamento" e use "Verificar nº do local".</b>`:""}
-      ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro ${PN()} ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
+      ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro ${curtoE(empReserva(EQ))} ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
       ${isReserva(EQ)&&!cd?`<br><span class="badge" style="background:var(--cinza2);margin-top:8px">RESERVA</span>`:""}
-      ${EQ.engex&&!cd?`<br><span class="badge b-engex" style="margin-top:8px">RESERVA ${PN().toUpperCase()} desde ${fmtBR(EQ.engexDesde)}</span>`:""}
-      ${emManutencao(EQ)&&!cd?`<br><span class="badge b-manut" style="margin-top:8px">🔧 EM MANUTENÇÃO desde ${fmtBR(EQ.manutDesde)}</span>
+      ${EQ.engex&&!cd?`<br><span class="badge b-engex" style="margin-top:8px">RESERVA ${curtoE(empReserva(EQ)).toUpperCase()} desde ${fmtBR(EQ.engexDesde)}</span>${ISADMIN?` <a href="#" style="font-size:13px" onclick="trocaEmpresaReg('engexEmp');return false">trocar empresa</a>`:""}`:""}
+      ${emManutencao(EQ)&&!cd?`<br><span class="badge b-manut" style="margin-top:8px">🔧 EM MANUTENÇÃO na ${curtoE(empManut(EQ))} desde ${fmtBR(EQ.manutDesde)}</span>${ISADMIN?` <a href="#" style="font-size:13px" onclick="trocaEmpresaReg('manutEmp');return false">trocar empresa</a>`:""}
         <br><small style="color:var(--cinza)">Saiu de ${EQ.manutDe?`Ext ${esc(String(EQ.manutDe))}`:"—"}${EQ.manutLoc?` — ${esc(String(EQ.manutLoc))}`:""} para recarga. Use "Ações do equipamento" → "Registrar retorno da recarga" quando ele voltar.</small>`:""}
       ${cxCond}${acoes}`
     :`<span class="lock">padrão travado</span>Patrimônio: <b>${esc(String(EQ.pat))}</b> · Tipo: <b>${esc(String(EQ.tipo??"—"))}</b> · Capacidade: <b>${esc(String(EQ.cap??"—"))}</b><br>
@@ -1310,6 +1324,27 @@ function mostraPadrao(){
   ajustaCO2();};
 
 /* ---------- Reserva emprestada pela Engex (temporária, até o cilindro original retornar da manutenção) ---------- */
+/* admin corrige a empresa de um cilindro em manutencao (manutEmp) ou de uma reserva emprestada (engexEmp) */
+window.trocaEmpresaReg=campo=>{
+  if(!EQ||!ISADMIN)return;
+  const atual=(campo==="manutEmp"?empManut(EQ):empReserva(EQ)).id;
+  const lista=[...(EMPRESAS.prestadoras||[])];
+  if(!lista.some(p=>p.id===PRESTADORA_HISTORICA.id))lista.unshift(PRESTADORA_HISTORICA);
+  _dlgAbre(`<h3>${campo==="manutEmp"?"Empresa da manutenção":"Empresa da reserva"}</h3>
+    <p style="font-size:14px;line-height:1.6;color:var(--cinza)">${campo==="manutEmp"
+      ?`Com qual empresa está o cilindro Nº ${esc(String(EQ.num??"—"))}, que saiu para recarga em ${fmtBR(EQ.manutDesde)}?`
+      :`De qual empresa é o cilindro emprestado neste local desde ${fmtBR(EQ.engexDesde)}?`}</p>
+    <select id="teEmp">${lista.map(p=>`<option value="${esc(p.id)}"${p.id===atual?" selected":""}>${esc(p.curto||p.nome)}</option>`).join("")}</select>
+    <button class="btn" onclick="salvaEmpresaReg('${campo}')">Salvar</button>
+    <button class="btn sec" onclick="fechaDlg()">Cancelar</button>`);};
+window.salvaEmpresaReg=async campo=>{
+  if(!EQ||!ISADMIN||!podeGravar())return;
+  const seq=String(EQ.seq),id=$("teEmp").value;
+  OVR[seq]={...(OVR[seq]||{}),[campo]:id};
+  try{const ok=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[seq]:OVR[seq]}},{merge:true}));
+    audit("trocar_empresa_registro",{seq,campo,empresa:id},ok);
+    aplicaOvr();fechaDlg();avisaGravacao(ok,`✅ Empresa atualizada: ${curtoT(prestadoraPorId(id))}.`);}
+  catch(e){toast("Erro ao salvar: "+e.message);}};
 window.toggleEngex=async()=>{
   if(!EQ||TIPO!=="ext"||isReserva(EQ))return;
   const ligando=!EQ.engex;
@@ -1317,11 +1352,12 @@ window.toggleEngex=async()=>{
   const vaiParaManut=ligando&&!!numOriginal;
   const msg=ligando
     ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela ${PNT()}?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da ${PNT()} até a manutenção do seu retornar.${vaiParaManut?`\n\nO Nº ${numOriginal} (o que estava aqui) vai automaticamente para "equipamento em manutenção/recarga", e este local fica sem número até você informar o do cilindro emprestado em "Verificar nº do local".`:` Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`}`
-    :`Desmarcar a reserva ${PNT()} deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
+    :`Desmarcar a reserva ${curtoT(empReserva(EQ))} deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
   if(!confirm(msg))return;
   const seq=String(seqOriginal);
   const ovrAntes=JSON.parse(JSON.stringify(OVR)),cadxAntes=JSON.parse(JSON.stringify(CADX));
-  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?dataHoje():""};
+  const empAntes=curtoT(empReserva(EQ));
+  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?dataHoje():"",engexEmp:ligando?PREST().id:null};
   const patch={[seq]:OVR[seq]};
   let novoSeq=null;
   if(vaiParaManut){
@@ -1333,7 +1369,7 @@ window.toggleEngex=async()=>{
     novoSeq=await proxSeqSeguro(true);
     if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
-    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal};
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal,manutEmp:PREST().id};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
     CAMPOS.forEach(c=>{OVR[seq][c]=null;});
   }
@@ -1354,7 +1390,7 @@ window.toggleEngex=async()=>{
        comTimeout). Desfazer a memoria agora mostrava o estado antigo na tela e, pior, a
        proxima gravacao do cadastro mandaria o estado antigo por cima da que esta na fila. */
     aplicaOvr();
-    avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva ${PNT()} — Nº ${numOriginal} foi para manutenção/recarga.`:`🏢 Marcado como reserva ${PNT()}.`):`✅ Reserva ${PNT()} removida.`);
+    avisaGravacao(ok,ligando?(vaiParaManut?`🏢 Marcado como reserva ${PNT()} — Nº ${numOriginal} foi para manutenção/recarga.`:`🏢 Marcado como reserva ${PNT()}.`):`✅ Reserva ${empAntes} removida.`);
   }catch(e){OVR=ovrAntes;CADX=cadxAntes;toast("Erro ao salvar: "+e.message);}
 };
 /* ---------- Migração retroativa: reservas Engex marcadas ANTES desta correção
@@ -1371,7 +1407,7 @@ window.migrarEngexAntigos=()=>{
     <div style="max-height:320px;overflow-y:auto;margin-top:8px">
     ${candidatos.map(e=>`<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #eee">
       <input type="checkbox" class="migEngex" value="${esc(String(e.seq))}" checked style="margin-top:3px">
-      <span>Ext ${esc(String(e.seq))} — ${esc(e.loc||"")}<br><small style="color:var(--cinza)">Nº atual: ${esc(String(e.num??"—"))} · reserva ${PN()} desde ${fmtBR(e.engexDesde)}</small></span></label>`).join("")}
+      <span>Ext ${esc(String(e.seq))} — ${esc(e.loc||"")}<br><small style="color:var(--cinza)">Nº atual: ${esc(String(e.num??"—"))} · reserva ${curtoE(empReserva(e))} desde ${fmtBR(e.engexDesde)}</small></span></label>`).join("")}
     </div>
     <button class="btn" onclick="confirmaMigraEngexAntigos()">🔄 Migrar os marcados</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
@@ -1389,7 +1425,7 @@ window.confirmaMigraEngexAntigos=async()=>{
     const novoSeq=await proxSeqSeguro(true);
     if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
-    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||""};
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||"",manutEmp:empReserva(e).id};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
     OVR[s]={...OVR[s]};CAMPOS.forEach(c=>{OVR[s][c]=null;});
     patch[s]=OVR[s];
@@ -1427,7 +1463,7 @@ window.acoesEquip=()=>{
   if(ext&&emManutencao(EQ))
     L.push(`<button class="btn" style="background:#7c3aed" onclick="${ir("voltouRecarga")}">🔧 Registrar retorno da recarga</button>`);
   if(ext&&!isReserva(EQ)&&!cd)
-    L.push(`<button class="btn sec" style="border-color:var(--warn);color:#92400e" onclick="${ir("toggleEngex")}">${EQ.engex?`↩️ Desmarcar reserva ${PN()}`:`🏢 Marcar como reserva ${PN()}`}</button>`);
+    L.push(`<button class="btn sec" style="border-color:var(--warn);color:#92400e" onclick="${ir("toggleEngex")}">${EQ.engex?`↩️ Desmarcar reserva ${curtoE(empReserva(EQ))}`:`🏢 Marcar como reserva ${PN()}`}</button>`);
   if(ext&&ISADMIN&&!isReserva(EQ)&&!cd)
     L.push(`<button class="btn sec" onclick="${ir("corrigirLocal")}">🔎 Verificar nº do local</button>`);
   L.push(`<button class="btn sec" onclick="${ir("historicoEquip")}">📜 Histórico ${ext&&!isReserva(EQ)?"da posição":"do equipamento"}</button>`);
@@ -1754,6 +1790,8 @@ function pintaEditorEmpresas(){
       ${campo("epNome"+i,"Nome completo (sai no relatório)",p.nome,"ex.: Nome da Empresa Extintores Ltda")}
       ${campo("epCurto"+i,"Nome curto (aparece nas telas)",p.curto,"ex.: Engex")}
       <div class="row"><div>${campo("epCnpj"+i,"CNPJ",p.cnpj,"00.000.000/0000-00")}</div><div>${campo("epCont"+i,"Contato",p.contato,"telefone ou e-mail")}</div></div>
+      <label for="epDesde${i}">Início do contrato</label><input id="epDesde${i}" type="date" value="${esc(p.desde||"")}">
+      <p style="font-size:12.5px;color:var(--cinza);margin-top:4px">Usado para saber com qual empresa estão os cilindros que saíram para recarga antes de o app gravar a empresa em cada registro. ${p.id==="engex"?"Pode deixar em branco: o que for anterior ao início das outras fica com esta.":""}</p>
       ${campoLogo("p"+i,p)}
     </div>`).join("")}
     <button class="btn sec" onclick="novaPrestadora()">${'<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>'}Nova prestadora</button>
@@ -1768,7 +1806,7 @@ function pintaEditorEmpresas(){
 /* le o que esta digitado de volta para a copia de trabalho (antes de redesenhar ou salvar) */
 function leEditorEmpresas(){
   const v=id=>($(id)?.value||"").trim();
-  _empEd.prestadoras=_empEd.prestadoras.map((p,i)=>({...p,nome:v("epNome"+i),curto:v("epCurto"+i),cnpj:v("epCnpj"+i),contato:v("epCont"+i)}));
+  _empEd.prestadoras=_empEd.prestadoras.map((p,i)=>({...p,nome:v("epNome"+i),curto:v("epCurto"+i),cnpj:v("epCnpj"+i),contato:v("epCont"+i),desde:v("epDesde"+i)}));
   _empEd.atual=$("empAtual")?.value||_empEd.atual;
   _empEd.cliente={..._empEd.cliente,nome:v("ecNome"),curto:v("ecCurto"),cnpj:v("ecCnpj"),endereco:v("ecEnd")};}
 window.novaPrestadora=()=>{
@@ -2338,10 +2376,10 @@ window.confirmaCorrecaoLocal=async()=>{
   const mesmoNumero=String(dX.num??"").trim()!==""&&String(dX.num??"").trim()===String(dY.num??"").trim();
   /* a gravacao usa merge, que nao remove chave ausente: sem estes nulos a vaga
      esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
-  ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
+  ["manut","manutDesde","manutDe","manutLoc","manutEmp","engex","engexDesde","engexEmp"].forEach(k=>{vazio[k]=null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
   const _ovrAntesCL={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(ySeq)]:OVR[String(ySeq)]};
-  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...(_p.engexEmp!==undefined?{engexEmp:_p.engexEmp}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false,seqSlot=null;
   if(dX.num&&!mesmoNumero){  /* o que constava aqui vira reserva */
@@ -2426,15 +2464,15 @@ window.confirmaTroca=async()=>{
   const eraReserva=isReserva(r);
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const doEQ={},doR={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;doR[c]=r[c]??null;});
-  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...doR};}
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...(_p.engexEmp!==undefined?{engexEmp:_p.engexEmp}:{}),...doR};}
   /* Se quem entrou veio do pool de reserva, o cilindro que saiu foi para RECARGA:
      fica marcado como em manutenção até alguém registrar o retorno.
      Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
   OVR[String(r.seq)]=eraReserva
-    ?{...doEQ,manut:true,manutDesde:dataLocal(),manutDe:EQ.seq,manutLoc:EQ.loc||""}
+    ?{...doEQ,manut:true,manutDesde:dataLocal(),manutDe:EQ.seq,manutLoc:EQ.loc||"",manutEmp:PREST().id}
     /* troca entre dois pontos fixos: ninguem foi para recarga. Sem estes nulos o merge
        manteria uma marcacao de manutencao antiga que ficou no servidor. */
-    :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null};
+    :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null,manutEmp:null};
   /* mesma armadilha da verificacao de local: o mapa inteiro no corpo desfaz o que
      outro inspetor gravou. A troca mexe em duas posicoes, entao sobem duas. */
   const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
@@ -2510,7 +2548,7 @@ window.voltouRecarga=()=>{
       <div><label>Próx. Man. 2º Nível</label><input id="rcM2" type="date" value="${somaAnos(hoje,1)}"></div>
       <div><label>Próx. Man. 3º Nível</label><input id="rcM3" type="date" value="${EQ.man3||""}"></div>
     </div>
-    <p style="font-size:11.5px;color:var(--cinza2);margin:6px 0 0">Confira as duas datas no certificado devolvido pela ${PN()} antes de confirmar.</p>
+    <p style="font-size:11.5px;color:var(--cinza2);margin:6px 0 0">Confira as duas datas no certificado devolvido pela ${curtoE(empManut(EQ))} antes de confirmar.</p>
     <button class="btn" onclick="confirmaRetornoRecarga()">✅ Confirmar retorno</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
@@ -2524,7 +2562,7 @@ window.confirmaRetornoRecarga=async()=>{
   const novo={...anterior};
   /* nulos em vez de delete: assim a limpeza funciona tambem numa gravacao com merge,
      que e o que permite gravar so esta posicao em vez do mapa inteiro */
-  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{novo[k]=null;});
+  ["manut","manutDesde","manutDe","manutLoc","manutEmp"].forEach(k=>{novo[k]=null;});
   novo.man2=m2;novo.man3=m3;
   OVR[seq]=novo;
   try{
@@ -2563,7 +2601,7 @@ function situacaoDe(tipo,e){
   if(tipo==="ext"){
     if(ehCondenado(e))return {k:"cond",txt:"Condenado",badge:"b-cond"};
     if(emManutencao(e))return {k:"manut",txt:"Em manutenção",badge:"b-manut"};
-    if(e.engex)return {k:"engex",txt:"Reserva "+PNT(),badge:"b-engex"};
+    if(e.engex)return {k:"engex",txt:"Reserva "+curtoT(empReserva(e)),badge:"b-engex"};
     if(isReserva(e))return {k:"reserva",txt:"Reserva",badge:""};
     return {k:"area",txt:"Em área",badge:""};}
   return {k:"area",txt:"Em área",badge:""};}
@@ -2830,11 +2868,12 @@ window.render=()=>{
   const mb=$("manutBox");
   if(mb){
     mb.classList.toggle("hidden",!emManut.length);
-    if(emManut.length)dobraBox(mb,`Em recarga na ${PN()}`,emManut.length,"neutro",
+    const empsM=[...new Set(emManut.map(e=>curtoT(empManut(e))))];
+    if(emManut.length)dobraBox(mb,`Em recarga na ${esc(empsM.join(" / "))}`,emManut.length,"neutro",
       "Saíram do local para recarga e ainda não voltaram. Ficam fora da rota e não podem ser escolhidos como reserva.",
       emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
         <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · desde ${fmtBR(e.manutDesde)}</small></span>
-        <span class="badge b-manut">manutenção</span></div>`).join(""));}
+        <span class="badge b-manut">na ${curtoE(empManut(e))}</span></div>`).join(""));}
   /* Mesmo numero de cilindro em duas posicoes: a "ultima inspecao" e buscada pelo
      numero, entao a inspecao de uma posicao conta pela outra — e a posicao que
      ninguem inspecionou nunca aparece como pendente. E falha de cobertura. */
@@ -2865,11 +2904,12 @@ window.render=()=>{
   if(eb){
     const comEngex=CAD.ext.filter(e=>e.engex&&!isReserva(e)&&!ehCondenado(e));
     eb.classList.toggle("hidden",!comEngex.length);
-    if(comEngex.length)dobraBox(eb,`Pontos com reserva ${PN()}`,comEngex.length,"neutro",
-      `Cilindro emprestado pela ${PN()} no lugar do original que está em manutenção.`,
+    const empsR=[...new Set(comEngex.map(e=>curtoT(empReserva(e))))];
+    if(comEngex.length)dobraBox(eb,`Pontos com reserva ${esc(empsR.join(" / "))}`,comEngex.length,"neutro",
+      `Cilindro emprestado pela prestadora no lugar do original que está em manutenção.`,
       comEngex.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Ext ${esc(String(e.seq))} — ${esc(String(e.loc||"").replace(/^Ext \d+ — /,""))}
         <br><small style="color:var(--cinza)">${e.num?`Nº ${esc(String(e.num))} · `:"Número do cilindro ainda não informado · "}reserva desde ${fmtBR(e.engexDesde)}</small></span>
-        <span class="badge b-engex">${PN()}</span></div>`).join(""));
+        <span class="badge b-engex">${curtoE(empReserva(e))}</span></div>`).join(""));
   }
   $("pendBox").innerHTML=`<div class="cabSec"><label style="margin:0">Rota do mês</label><span style="font-size:14px;color:var(--cinza)">${mesExtenso(pm)}</span></div>
     <div class="rotaNum"><b>${inspRota}</b><span>de ${tot} pontos inspecionados</span></div>
@@ -3007,7 +3047,7 @@ window.renderVenc=()=>{
     /* Um cartao por EQUIPAMENTO, com os niveis dentro. Antes era uma linha por
        nivel: o mesmo extintor aparecia duas vezes e o contador somava linhas. */
     const pior=Math.min(...niveis.map(n=>n.dd));
-    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${esc(rotuloExt(e))} \u00b7 <b>${esc(rotuloAg(e))}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na ${PN()} desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${esc(subExt(e))}</small></span></div>`});});
+    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${esc(rotuloExt(e))} \u00b7 <b>${esc(rotuloAg(e))}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na ${curtoE(empManut(e))} desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${esc(subExt(e))}</small></span></div>`});});
   linhas.sort((a,b)=>a.d-b.d);
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
@@ -4579,7 +4619,7 @@ async function alinhaOvrNovaPosicao(novo){
   if(!OVR[sq])return true;
   OVR[sq]={num:novo.num??null,tipo:novo.tipo??null,carga:novo.carga??null,
     fab:novo.fab??null,fabricante:novo.fabricante??null,man2:novo.man2??null,man3:novo.man3??null,
-    manut:null,manutDesde:null,manutDe:null,manutLoc:null,engex:null,engexDesde:null};
+    manut:null,manutDesde:null,manutDe:null,manutLoc:null,manutEmp:null,engex:null,engexDesde:null,engexEmp:null};
   return await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[sq]:OVR[sq]}},{merge:true}));}
 const proxSeqExt=()=>{
   const usados=seqsOcupadosExt(),hist=seqsComHistoricoExt();
@@ -4756,7 +4796,7 @@ window.confirmaAlteraId=async()=>{
     OVR[novo]={num:base.num??null,tipo:base.tipo??null,carga:base.carga??null,fab:base.fab??null,
       fabricante:base.fabricante??null,man2:base.man2??null,man3:base.man3??null,
       manut:base.manut??null,manutDesde:base.manutDesde??null,manutDe:base.manutDe??null,
-      manutLoc:base.manutLoc??null,engex:base.engex??null,engexDesde:base.engexDesde??null};
+      manutLoc:base.manutLoc??null,manutEmp:base.manutEmp??null,engex:base.engex??null,engexDesde:base.engexDesde??null,engexEmp:base.engexEmp??null};
     patch[novo]=OVR[novo];}
   delete OVR[atual];
   try{
@@ -4842,7 +4882,7 @@ function itemBuscaAdm(t,e){
   if(t==="hid")return `<span class="t">HID ${esc(String(e.pat))}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;
   const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`
     :(emManutencao(e)?` <span class="badge b-manut">🔧 EM MANUTENÇÃO</span>`
-    :(e.engex?` <span class="badge b-engex">${PN().toUpperCase()}</span>`:""));
+    :(e.engex?` <span class="badge b-engex">${curtoE(empReserva(e)).toUpperCase()}</span>`:""));
   return isReserva(e)
     ?`<span class="t">Reserva ${esc(String(e.seq))} · Nº ${esc(String(e.num??"—"))}${selo}</span><span class="s">pool de reserva</span>`
     :`<span class="t">EXT ${esc(String(e.seq))} · Nº ${esc(String(e.num??"—"))}${selo}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;}
@@ -5102,7 +5142,7 @@ window.exportCadLote=async()=>{
        seguem preenchidos com o dado real do cilindro que está lá (que fica em
        e.tipo/e.carga, não em e.agp/e.cgp, enquanto ele está em manutenção). */
     CAD.ext.filter(e=>!ehCondenado(e)).forEach(e=>ws.addRow([e.seq,
-      e.engex?"Reserva "+PNT():(e.num??""),e.pat??"",(e.tipo||e.agp)??"",(e.carga??e.cgp)??"",
+      e.engex?"Reserva "+curtoT(empReserva(e)):(e.num??""),e.pat??"",(e.tipo||e.agp)??"",(e.carga??e.cgp)??"",
       e.loc??"",e.fab??"",e.fabricante??"",fmtBR(e.man2),fmtBR(e.man3),"",""]));
   }else{
     ws.addRow(["Patrimônio (não alterar)","Tipo","Capacidade","Localização","Fabricação (ano)","Fabricante","Próx. Manutenção","Próx. T. Hidrostático","Novo Patrimônio (só preencha se quiser mudar)","Remover? (S/N)"]);
@@ -5167,7 +5207,7 @@ window.processaLote=async modo=>{
           if(OVR[String(seqNovo)]){
             OVR[String(seqNovo)]={num:novoEq.num,tipo:novoEq.tipo,carga:novoEq.carga,fab:novoEq.fab,
               fabricante:novoEq.fabricante,man2:novoEq.man2??null,man3:novoEq.man3??null,
-              manut:null,manutDesde:null,manutDe:null,manutLoc:null,engex:null,engexDesde:null};
+              manut:null,manutDesde:null,manutDe:null,manutLoc:null,manutEmp:null,engex:null,engexDesde:null,engexEmp:null};
             patchOvr[String(seqNovo)]=OVR[String(seqNovo)];}
           add++;
         }else{
@@ -5258,7 +5298,7 @@ window.processaLote=async modo=>{
             OVR[String(n)]={num:base.num??null,tipo:base.tipo??null,carga:base.carga??null,fab:base.fab??null,
               fabricante:base.fabricante??null,man2:base.man2??null,man3:base.man3??null,
               manut:base.manut??null,manutDesde:base.manutDesde??null,manutDe:base.manutDe??null,
-              manutLoc:base.manutLoc??null,engex:base.engex??null,engexDesde:base.engexDesde??null};
+              manutLoc:base.manutLoc??null,manutEmp:base.manutEmp??null,engex:base.engex??null,engexDesde:base.engexDesde??null,engexEmp:base.engexEmp??null};
             patchOvr[String(n)]=OVR[String(n)];}
           patchOvr[r.atual]=deleteField();
           delete OVR[r.atual];
