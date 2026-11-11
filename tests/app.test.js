@@ -257,11 +257,16 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     confere(await p.$eval("#empLogoPrev", e => !e.classList.contains("hidden") && !!e.querySelector("img")), "cartao de empresas mostra o logo atual");
     confere(await p.$eval("#hLogo", e => !e.classList.contains("hidden") && e.querySelector("img").alt === "NovaX"), "logo da prestadora no topo do app");
     /* FOTOS=pasta: guarda telas para conferir o layout (nao roda no GitHub) */
-    if (process.env.FOTOS) { await p.setViewportSize({ width: 360, height: 760 });
+    if (process.env.FOTOS) { await p.setViewportSize({ width: 430, height: 900 });
       await p.click('nav button[data-t="tPainel"]'); await p.waitForTimeout(800);
       await p.evaluate(() => { document.querySelectorAll("#pendBox .pendDet")[0].open = true; const g = document.querySelector('details[ontoggle*="carregaGraficos"]'); g.open = true; });
       await p.waitForTimeout(1500);
       await p.screenshot({ path: path.join(process.env.FOTOS, "painel.png"), fullPage: true });
+      await p.evaluate(() => { document.getElementById("poolBox").open = true; });
+      await p.waitForTimeout(300);
+      await (await p.$("#poolBox")).screenshot({ path: path.join(process.env.FOTOS, "pool.png") });
+      await p.evaluate(() => document.querySelector('[data-p="pAdm"]').click()); await p.waitForTimeout(500);
+      await (await p.$("#adminBox")).screenshot({ path: path.join(process.env.FOTOS, "cadastro.png") });
       await p.setViewportSize({ width: 1280, height: 800 }); }
     const tela = await p.evaluate(() => ({ kpi: document.querySelector(".nPrest").textContent, opt: document.querySelector("option.oPrest").textContent }));
     confere(tela.kpi === "NovaX" && tela.opt === "Reserva NovaX", "os nomes da tela passam a usar a empresa nova", tela);
@@ -350,6 +355,18 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     const ovr = (await le("config", "cadastroExt")).overrides;
     const novaManut = Object.values(ovr).find(o => o.manut && o.manutDe == 4);
     confere(ovr["4"] && ovr["4"].engexEmp === "prbr" && (!novaManut || novaManut.manutEmp === "prbr"), "emprestimo e recarga novos gravam a RBR", { o4: ovr["4"], novaManut });
+    /* reservas pelo Nº do cilindro e pool de reserva contado pelos cilindros */
+    const pool = await p.evaluate(() => { const el = document.getElementById("poolBox"); return { txt: el.textContent, n: +el.querySelector(".cnt").textContent }; });
+    const esperado = await p.evaluate(() => document.querySelectorAll("#poolBox .venc").length);
+    confere(pool.n === esperado && esperado > 0 && /em recarga/.test(pool.txt) && /Disponíveis/.test(pool.txt), "pool de reserva conta os cilindros disponiveis", { pool: pool.txt.slice(0, 160), esperado });
+    await p.evaluate(() => { document.querySelector('[data-p="pEquip"]').click(); });
+    await p.waitForTimeout(800);
+    const lista = await p.evaluate(() => [...document.querySelectorAll("#eqLista td:first-child")].map(t => t.textContent));
+    confere(lista.length > 0 && !lista.some(t => /^Reserva \d/.test(t)) && lista.some(t => /^Reserva · Nº/.test(t)), "lista de equipamentos mostra reserva pelo Nº, sem ID de vaga", lista.filter(t => /Reserva/.test(t)).slice(0, 3));
+    await p.click('nav button[data-t="tNovo"]');
+    await p.evaluate(() => window.escolheEquip("ext", "5"));
+    const card = await p.evaluate(() => document.getElementById("padraoBox").innerText);
+    confere(/Patrimônio: 5\b/.test(card), "patrimonio do local fixo = ID do local", card.slice(0, 120));
     /* aviso de versao nova */
     await p.evaluate(() => window.mostraAvisoAtualizacao());
     confere(await p.$eval("#avisoAtualiza", e => !e.classList.contains("hidden") && getComputedStyle(e).display !== "none" && e.innerText.includes("Recarregar")), "aviso de sistema atualizado aparece");
