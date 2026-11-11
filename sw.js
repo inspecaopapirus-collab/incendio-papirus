@@ -1,6 +1,6 @@
 /* Service worker — Combate a Incêndio Papirus (v3)
    Deixa o app abrir sem conexão e avisa vencimentos em segundo plano. */
-const CACHE="incendio-v22";
+const CACHE="incendio-v23";
 self.addEventListener("install",e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(["/","/papirus-simbolo.svg","/logo-papirus.svg"])).then(()=>self.skipWaiting()));});
 self.addEventListener("activate",e=>{
