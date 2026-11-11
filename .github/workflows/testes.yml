@@ -22,7 +22,11 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm install --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
+      # o navegador vem do CDN do Playwright; as bibliotecas do sistema ja estao no runner.
+      # O "install-deps" usa o apt do Ubuntu, que as vezes fica fora do ar (DNS do espelho):
+      # nesse caso so faltam fontes extras, e os testes rodam assim mesmo.
+      - run: npx playwright install chromium
+      - run: npx playwright install-deps chromium || echo "::warning::apt indisponivel; seguindo com as bibliotecas que o runner ja tem"
       - name: Unidade (datas, gravacao do cadastro)
         run: npm run test:unidade
       - name: Regras do Firestore e app no navegador (emulador)
