@@ -263,7 +263,7 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
       await p.waitForTimeout(1500);
       await p.screenshot({ path: path.join(process.env.FOTOS, "painel.png"), fullPage: true });
       await p.setViewportSize({ width: 1280, height: 800 }); }
-    const tela = await p.evaluate(() => ({ kpi: document.querySelector(".kpi .nPrest").textContent, opt: document.querySelector("option.oPrest").textContent }));
+    const tela = await p.evaluate(() => ({ kpi: document.querySelector(".nPrest").textContent, opt: document.querySelector("option.oPrest").textContent }));
     confere(tela.kpi === "NovaX" && tela.opt === "Reserva NovaX", "os nomes da tela passam a usar a empresa nova", tela);
     /* nenhuma tela pode mostrar "${" (texto que o JavaScript deveria ter trocado) */
     const sobra = [];
@@ -318,6 +318,42 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     const us = await le("usuarios", uid);
     confere(us && us.empresa === "cliente", "dono define a empresa de um usuario", us && us.empresa);
     confere(p.erros.length === 0, "empresas sem erro de JavaScript", p.erros);
+    await ctx.close(); }
+
+  /* 7. troca de prestadora (como em producao): Engex ate 31/10, RBR desde 01/11.
+     O que a Engex levou ou emprestou antes continua sendo da Engex. */
+  HTML = preparaHtml(false); await zera();
+  const dono7 = await signUp("ederbatistelajr@gmail.com");
+  await escreve(async d => {
+    await F.setDoc(F.doc(d, "usuarios", dono7), { nome: "Eder", perfil: "admin", email: "ederbatistelajr@gmail.com" });
+    /* como estava gravado antes das datas de contrato */
+    await F.setDoc(F.doc(d, "config", "empresas"), { atual: "prbr", cliente: { nome: "PAPIRUS", curto: "Papirus" }, prestadoras: [
+      { id: "engex", nome: "Engex Extintores e Equipamentos", curto: "Engex" }, { id: "prbr", nome: "RBR Extintores Ltda", curto: "RBR Extintores" }] });
+    await F.setDoc(F.doc(d, "config", "cadastroExt"), { overrides: {
+      "2": { manut: true, manutDesde: "2026-08-31", manutDe: 9, manutLoc: "Ext 9 — Teste" },
+      "3": { engex: true, engexDesde: "2026-10-05" } } });
+    await F.setDoc(F.doc(d, "inspecoes", "nov"), { tipo: "ext", eqSeq: 5, mes: "2026-11", data: "2026-11-03", criadoEm: 5, conformidade: "C", inspetor: "X", empresa: "Engex Extintores e Equipamentos", empresaId: "engex" });
+  });
+  { const { ctx, p } = await abre();
+    await entra(p, "ederbatistelajr@gmail.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(3500);
+    const emp = await le("config", "empresas");
+    const en = emp.prestadoras.find(x => x.id === "engex"), rbr = emp.prestadoras.find(x => x.id === "prbr");
+    confere(en.fim === "2026-10-31" && rbr.inicio === "2026-11-01", "datas de contrato gravadas: Engex ate 31/10, RBR desde 01/11", { en, rbr });
+    await p.click('nav button[data-t="tPainel"]'); await p.waitForTimeout(800);
+    const tela = await p.evaluate(() => ({ manut: document.getElementById("manutBox").textContent, emp: document.getElementById("engexBox").textContent }));
+    confere(/na Engex desde/.test(tela.manut) && !/RBR/.test(tela.manut), "recarga feita antes de novembro continua na Engex", tela.manut.slice(0, 300));
+    confere(/Engex/.test(tela.emp) && !/RBR/.test(tela.emp), "cilindro emprestado antes de novembro continua da Engex", tela.emp.slice(0, 300));
+    const quem = await p.evaluate(() => ({ out: prestadoraNaData("2026-10-31").id, nov: prestadoraNaData("2026-11-01").id, insp: prestadoraDoMes("2026-11") }));
+    confere(quem.out === "engex" && quem.nov === "prbr" && /RBR/.test(quem.insp), "pela data: 31/10 Engex, 01/11 RBR (inspecao de novembro e da RBR)", quem);
+    /* emprestimo novo hoje: grava a RBR, e o cilindro que saiu vai para recarga na RBR */
+    await p.evaluate(() => { window.escolheEquip("ext", "4"); return window.toggleEngex(); }); await p.waitForTimeout(3000);
+    const ovr = (await le("config", "cadastroExt")).overrides;
+    const novaManut = Object.values(ovr).find(o => o.manut && o.manutDe == 4);
+    confere(ovr["4"] && ovr["4"].engexEmp === "prbr" && (!novaManut || novaManut.manutEmp === "prbr"), "emprestimo e recarga novos gravam a RBR", { o4: ovr["4"], novaManut });
+    /* aviso de versao nova */
+    await p.evaluate(() => window.mostraAvisoAtualizacao());
+    confere(await p.$eval("#avisoAtualiza", e => !e.classList.contains("hidden") && getComputedStyle(e).display !== "none" && e.innerText.includes("Recarregar")), "aviso de sistema atualizado aparece");
+    confere(p.erros.length === 0, "troca de prestadora sem erro de JavaScript", p.erros);
     await ctx.close(); }
 
   await browser.close(); await env.cleanup(); servidor.close();

@@ -43,6 +43,12 @@ nav button .nt{display:block;font-size:12px;line-height:1.3;margin-top:3px;white
 nav button.on{color:var(--vinho);font-weight:700}
 main{max-width:900px;margin:0 auto;padding:18px 16px 60px}
 .card{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:16px;margin-bottom:14px}
+.atualiza{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:300;max-width:560px;margin:0 auto;
+  background:#14532d;color:#fff;border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:14.5px;line-height:1.4}
+.atualiza span{flex:1}
+.atualiza button{background:#fff;color:#14532d;border:none;border-radius:10px;padding:10px 14px;font-weight:700;font-size:15px;min-height:44px;cursor:pointer;flex-shrink:0}
+.atualiza.hidden{display:none}
 .logoEd{display:flex;align-items:center;justify-content:center;min-height:72px;padding:8px;border:1px dashed var(--borda);border-radius:10px;background:#fff;margin:4px 0 8px;color:var(--cinza);font-size:14px}
 .logoEd img{max-width:100%;max-height:80px;object-fit:contain}
 label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--cinza);display:block;margin:14px 0 6px}
@@ -535,7 +541,7 @@ details.dobra .dobraIn{padding:0 18px 18px}
  <div class="kpi hidden"><b id="kPend">0</b><span>Pendentes</span></div>
  <div class="kpi"><b id="kNC" style="color:var(--nc)">0</b><span>Não conformes</span></div>
  <div class="kpi"><b id="kDiv">0</b><span>Divergências de agente/carga</span></div>
- <div class="kpi"><b id="kManut">0</b><span>Em recarga na <span class="nPrest">Engex</span></span></div>
+ <div class="kpi"><b id="kManut">0</b><span>Em recarga</span></div>
  <div class="kpi"><b id="kVenc30" style="color:var(--warn)">0</b><span>Vencem em 30 dias</span></div>
  </div>
  <div class="rotAtencao">Precisa de atenção</div>
@@ -677,6 +683,10 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </div>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="avisoAtualiza" class="atualiza hidden" role="alert">
+ <span><b>O sistema foi atualizado.</b><br>Termine o que está fazendo e recarregue para usar a versão nova.</span>
+ <button type="button" onclick="location.reload()">Recarregar</button>
+</div>
 
 <script type="module">
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -945,15 +955,42 @@ const PN=()=>esc(PNT());
 /* empresa de um usuario: uma prestadora (atual ou anterior) ou o cliente */
 const nomeEmpresa=id=>{if(!id)return "";if(id==="cliente")return EMPRESAS.cliente?.curto||EMPRESAS.cliente?.nome||"Cliente";
   const p=(EMPRESAS.prestadoras||[]).find(x=>x.id===id);return p?(p.curto||p.nome):"";};
-/* quem fez as inspecoes do mes: o nome gravado em cada inspecao (as antigas sao da Engex) */
+/* Periodo de contrato de cada prestadora (inicio/fim, AAAA-MM-DD). A Engex atendeu
+   ate 31/10/2026 e a prestadora seguinte comecou em 01/11/2026: a data diz quem era
+   responsavel por uma inspecao, uma recarga ou um emprestimo de cilindro. */
+const FIM_ENGEX="2026-10-31",INICIO_SUCESSORA="2026-11-01";
+function prestadoraDoPeriodo(d){
+  const dia=String(d||"").slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(dia))return null;
+  return (EMPRESAS.prestadoras||[]).find(p=>(p.inicio||p.fim)&&(!p.inicio||p.inicio<=dia)&&(!p.fim||dia<=p.fim))||null;}
+const prestadoraNaData=d=>prestadoraDoPeriodo(d)||PREST();
+window.prestadoraNaData=prestadoraNaData;
+const prestadoraPorId=id=>(EMPRESAS.prestadoras||[]).find(p=>p.id===id)||(id===PRESTADORA_HISTORICA.id?PRESTADORA_HISTORICA:null);
+/* com quem esta o cilindro em recarga / o emprestado: o gravado na hora; nos antigos, pela data */
+const prestDaManut=e=>prestadoraPorId(e?.manutEmp)||prestadoraNaData(e?.manutDesde);
+const prestDoEmprestimo=e=>prestadoraPorId(e?.engexEmp)||prestadoraNaData(e?.engexDesde);
+const curtoDe=p=>(p&&(p.curto||p.nome))||PNT();
+/* reserva emprestada no dia da inspecao: o gravado; nas antigas, o emprestimo do cadastro
+   (se o local ainda esta com ele) ou a empresa da inspecao */
+function reservaDaInsp(i){
+  if(i.reservaDe)return i.reservaDe;
+  const e=i.tipo==="ext"&&(CAD.ext||[]).find(x=>String(x.seq)===String(i.eqSeq));
+  if(e&&e.engex&&(!e.engexDesde||String(e.engexDesde)<=String(i.data||"")))return curtoDe(prestDoEmprestimo(e));
+  return i.empresaCurta||PRESTADORA_HISTORICA.curto;}
+/* empresa de uma inspecao: o periodo de contrato manda; sem periodo, o que foi gravado (antigas: Engex) */
+function empresaDaInsp(i){
+  const p=prestadoraDoPeriodo(i.data);
+  if(p)return {id:p.id,nome:p.nome};
+  return {id:i.empresaId||PRESTADORA_HISTORICA.id,nome:i.empresa||PRESTADORA_HISTORICA.nome};}
+/* quem fez as inspecoes do mes */
 function prestadoraDoMes(pm){
-  const nomes=[...new Set(ITENS.filter(i=>i.mes===pm).map(i=>i.empresa||PRESTADORA_HISTORICA.nome))];
-  return nomes.length?nomes.join(" / "):PREST().nome;}
+  const nomes=[...new Set(ITENS.filter(i=>i.mes===pm).map(i=>empresaDaInsp(i).nome))];
+  return nomes.length?nomes.join(" / "):prestadoraNaData(pm+"-15").nome;}
+window.prestadoraDoMes=prestadoraDoMes;
 /* logo do relatorio do mes: o da prestadora que fez a maioria das inspecoes daquele mes */
 function prestadoraObjDoMes(pm){
-  const n={};ITENS.forEach(i=>{if(i.mes===pm){const id=i.empresaId||PRESTADORA_HISTORICA.id;n[id]=(n[id]||0)+1;}});
+  const n={};ITENS.forEach(i=>{if(i.mes===pm){const id=empresaDaInsp(i).id;n[id]=(n[id]||0)+1;}});
   const id=Object.keys(n).sort((a,b)=>n[b]-n[a])[0];
-  return id?((EMPRESAS.prestadoras||[]).find(p=>p.id===id)||(id===PRESTADORA_HISTORICA.id?PRESTADORA_HISTORICA:null)):PREST();}
+  return id?prestadoraPorId(id):prestadoraNaData(pm+"-15");}
 /* tamanho do logo dentro de uma caixa, mantendo a proporcao */
 function cabeLogo(o,maxW,maxH){const w=+o?.logoW||maxW,h=+o?.logoH||maxH,k=Math.min(maxW/w,maxH/h,1);
   return {width:Math.round(w*k),height:Math.round(h*k)};}
@@ -1208,7 +1245,7 @@ function itemBusca(e){
     return `<span class="t">${esc(e.pat)}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;
   const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`
     :(emManutencao(e)?` <span class="badge b-manut">🔧 EM MANUTENÇÃO</span>`
-    :(e.engex?` <span class="badge b-engex">${PN().toUpperCase()}</span>`:""));
+    :(e.engex?` <span class="badge b-engex">${esc(curtoDe(prestDoEmprestimo(e))).toUpperCase()}</span>`:""));
   if(isReserva(e))
     return `<span class="t">Nº ${esc(String(e.num??"—"))}${selo}</span>`
       +`<span class="s">${e.num?`${esc(e.tipo||"")} ${esc(String(e.carga??""))} · pool de reserva`:"vaga de reserva vazia"}</span>`;
@@ -1296,10 +1333,10 @@ function mostraPadrao(){
           <b>Se o cilindro que está fisicamente aqui é o Nº ${esc(String(EQ.num))}</b>, toque abaixo e escolha esse mesmo número — o sistema confirma aqui e limpa a outra posição.
           <br><button type="button" class="abtn" style="margin-top:8px" onclick="corrigirLocal()">🔎 Resolver a duplicidade</button></div>`;})()}
       ${!EQ.num&&!isReserva(EQ)&&!EQ.engex?`<br><b style="color:var(--warn)">⚠️ Local vazio — abra "Ações do equipamento" e use "Verificar nº do local".</b>`:""}
-      ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro ${PN()} ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
+      ${!EQ.num&&EQ.engex?`<br><small style="color:var(--cinza)">Número do cilindro ${esc(curtoDe(prestDoEmprestimo(EQ)))} ainda não informado — dá pra inspecionar mesmo assim, ou completar depois em "Verificar nº do local".</small>`:""}
       ${isReserva(EQ)&&!cd?`<br><span class="badge" style="background:var(--cinza2);margin-top:8px">RESERVA</span>`:""}
-      ${EQ.engex&&!cd?`<br><span class="badge b-engex" style="margin-top:8px">RESERVA ${PN().toUpperCase()} desde ${fmtBR(EQ.engexDesde)}</span>`:""}
-      ${emManutencao(EQ)&&!cd?`<br><span class="badge b-manut" style="margin-top:8px">🔧 EM MANUTENÇÃO desde ${fmtBR(EQ.manutDesde)}</span>
+      ${EQ.engex&&!cd?`<br><span class="badge b-engex" style="margin-top:8px">RESERVA ${esc(curtoDe(prestDoEmprestimo(EQ))).toUpperCase()} desde ${fmtBR(EQ.engexDesde)}</span>`:""}
+      ${emManutencao(EQ)&&!cd?`<br><span class="badge b-manut" style="margin-top:8px">🔧 EM MANUTENÇÃO na ${esc(curtoDe(prestDaManut(EQ)))} desde ${fmtBR(EQ.manutDesde)}</span>
         <br><small style="color:var(--cinza)">Saiu de ${EQ.manutDe?`Ext ${esc(String(EQ.manutDe))}`:"—"}${EQ.manutLoc?` — ${esc(String(EQ.manutLoc))}`:""} para recarga. Use "Ações do equipamento" → "Registrar retorno da recarga" quando ele voltar.</small>`:""}
       ${cxCond}${acoes}`
     :`<span class="lock">padrão travado</span>Patrimônio: <b>${esc(String(EQ.pat))}</b> · Tipo: <b>${esc(String(EQ.tipo??"—"))}</b> · Capacidade: <b>${esc(String(EQ.cap??"—"))}</b><br>
@@ -1317,11 +1354,11 @@ window.toggleEngex=async()=>{
   const vaiParaManut=ligando&&!!numOriginal;
   const msg=ligando
     ?`Marcar este local (Ext ${EQ.seq}${EQ.num?` — cilindro atual Nº ${EQ.num}`:""}) como reserva emprestada pela ${PNT()}?\n\nUse isso quando o cilindro que está fisicamente no local hoje NÃO é o original — é um empréstimo da ${PNT()} até a manutenção do seu retornar.${vaiParaManut?`\n\nO Nº ${numOriginal} (o que estava aqui) vai automaticamente para "equipamento em manutenção/recarga", e este local fica sem número até você informar o do cilindro emprestado em "Verificar nº do local".`:` Pode marcar mesmo sem saber o número do cilindro emprestado — dá pra completar isso depois em "Verificar nº do local".`}`
-    :`Desmarcar a reserva ${PNT()} deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
+    :`Desmarcar a reserva ${curtoDe(prestDoEmprestimo(EQ))} deste local?\n\nUse isso quando o cilindro original já retornou da manutenção e voltou pro lugar.`;
   if(!confirm(msg))return;
   const seq=String(seqOriginal);
   const ovrAntes=JSON.parse(JSON.stringify(OVR)),cadxAntes=JSON.parse(JSON.stringify(CADX));
-  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?dataHoje():""};
+  OVR[seq]={...OVR[seq],engex:ligando,engexDesde:ligando?dataHoje():"",engexEmp:ligando?prestadoraNaData(dataHoje()).id:null};
   const patch={[seq]:OVR[seq]};
   let novoSeq=null;
   if(vaiParaManut){
@@ -1333,7 +1370,7 @@ window.toggleEngex=async()=>{
     novoSeq=await proxSeqSeguro(true);
     if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
-    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal};
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:seqOriginal,manutLoc:locOriginal,manutEmp:prestadoraNaData(dataHoje()).id};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
     CAMPOS.forEach(c=>{OVR[seq][c]=null;});
   }
@@ -1371,7 +1408,7 @@ window.migrarEngexAntigos=()=>{
     <div style="max-height:320px;overflow-y:auto;margin-top:8px">
     ${candidatos.map(e=>`<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #eee">
       <input type="checkbox" class="migEngex" value="${esc(String(e.seq))}" checked style="margin-top:3px">
-      <span>Ext ${esc(String(e.seq))} — ${esc(e.loc||"")}<br><small style="color:var(--cinza)">Nº atual: ${esc(String(e.num??"—"))} · reserva ${PN()} desde ${fmtBR(e.engexDesde)}</small></span></label>`).join("")}
+      <span>Ext ${esc(String(e.seq))} — ${esc(e.loc||"")}<br><small style="color:var(--cinza)">Nº atual: ${esc(String(e.num??"—"))} · reserva ${esc(curtoDe(prestDoEmprestimo(e)))} desde ${fmtBR(e.engexDesde)}</small></span></label>`).join("")}
     </div>
     <button class="btn" onclick="confirmaMigraEngexAntigos()">🔄 Migrar os marcados</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
@@ -1389,7 +1426,7 @@ window.confirmaMigraEngexAntigos=async()=>{
     const novoSeq=await proxSeqSeguro(true);
     if(novoSeq==null){OVR=ovrAntes;CADX=cadxAntes;return;}
     CADX.extAdd.push({seq:novoSeq,pat:novoSeq,agp:null,cgp:null,loc:"Reserva",...doEQ,criado:dataHoje()});
-    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||""};
+    OVR[String(novoSeq)]={manut:true,manutDesde:dataHoje(),manutDe:e.seq,manutLoc:e.loc||"",manutEmp:prestadoraNaData(dataHoje()).id};
     patch[String(novoSeq)]=OVR[String(novoSeq)];
     OVR[s]={...OVR[s]};CAMPOS.forEach(c=>{OVR[s][c]=null;});
     patch[s]=OVR[s];
@@ -1427,7 +1464,7 @@ window.acoesEquip=()=>{
   if(ext&&emManutencao(EQ))
     L.push(`<button class="btn" style="background:#7c3aed" onclick="${ir("voltouRecarga")}">🔧 Registrar retorno da recarga</button>`);
   if(ext&&!isReserva(EQ)&&!cd)
-    L.push(`<button class="btn sec" style="border-color:var(--warn);color:#92400e" onclick="${ir("toggleEngex")}">${EQ.engex?`↩️ Desmarcar reserva ${PN()}`:`🏢 Marcar como reserva ${PN()}`}</button>`);
+    L.push(`<button class="btn sec" style="border-color:var(--warn);color:#92400e" onclick="${ir("toggleEngex")}">${EQ.engex?`↩️ Desmarcar reserva ${esc(curtoDe(prestDoEmprestimo(EQ)))}`:`🏢 Marcar como reserva ${PN()}`}</button>`);
   if(ext&&ISADMIN&&!isReserva(EQ)&&!cd)
     L.push(`<button class="btn sec" onclick="${ir("corrigirLocal")}">🔎 Verificar nº do local</button>`);
   L.push(`<button class="btn sec" onclick="${ir("historicoEquip")}">📜 Histórico ${ext&&!isReserva(EQ)?"da posição":"do equipamento"}</button>`);
@@ -1702,7 +1739,13 @@ function pintaUInfo(){
 /* ================= Empresas (so o dono do cadastro) ================= */
 function normalizaEmpresas(d){
   const p=JSON.parse(JSON.stringify(EMPRESAS_PADRAO));if(!d)return p;
-  const lista=Array.isArray(d.prestadoras)&&d.prestadoras.length?d.prestadoras:p.prestadoras;
+  const lista=(Array.isArray(d.prestadoras)&&d.prestadoras.length?d.prestadoras:p.prestadoras).map(x=>({...x}));
+  /* datas de contrato que ainda nao foram gravadas: Engex ate 31/10/2026 e a primeira
+     prestadora cadastrada depois dela a partir de 01/11/2026 ("" = sem data, de proposito) */
+  const en=lista.find(x=>x.id===PRESTADORA_HISTORICA.id);
+  if(en&&en.fim===undefined)en.fim=FIM_ENGEX;
+  const suc=lista.find(x=>x.id!==PRESTADORA_HISTORICA.id);
+  if(suc&&suc.inicio===undefined)suc.inicio=INICIO_SUCESSORA;
   return {atual:d.atual||p.atual,prestadoras:lista,cliente:{...p.cliente,...(d.cliente||{})}};}
 /* textos fixos do HTML que levam o nome da prestadora */
 function pintaNomesEmpresa(){
@@ -1746,7 +1789,8 @@ function pintaEditorEmpresas(){
   const e=_empEd,campo=(id,rot,v,ph="")=>`<label for="${id}">${rot}</label><input id="${id}" value="${esc(v||"")}" placeholder="${esc(ph)}">`;
   $("dlgBody").innerHTML=`<h3>Dados das empresas</h3>
     <p style="font-size:14px;color:var(--cinza);line-height:1.6">A <b>prestadora atual</b> é a que aparece nas telas
-      ("Reserva …", "Em recarga na …") e nos relatórios dos meses novos. Os meses já feitos continuam com a empresa que fez as inspeções.</p>
+      ("Reserva …", "Em recarga na …") e nos relatórios dos meses novos. As <b>datas de contrato</b> dizem de quem é cada inspeção,
+      recarga ou empréstimo de cilindro: o que aconteceu dentro do contrato da Engex continua sendo da Engex.</p>
     <label for="empAtual">Prestadora atual</label>
     <select id="empAtual">${e.prestadoras.map(p=>`<option value="${esc(p.id)}"${p.id===e.atual?" selected":""}>${esc(p.nome||"(sem nome)")}</option>`).join("")}</select>
     ${e.prestadoras.map((p,i)=>`<div class="card" style="margin:14px 0 0;background:#faf7f6">
@@ -1754,6 +1798,8 @@ function pintaEditorEmpresas(){
       ${campo("epNome"+i,"Nome completo (sai no relatório)",p.nome,"ex.: Nome da Empresa Extintores Ltda")}
       ${campo("epCurto"+i,"Nome curto (aparece nas telas)",p.curto,"ex.: Engex")}
       <div class="row"><div>${campo("epCnpj"+i,"CNPJ",p.cnpj,"00.000.000/0000-00")}</div><div>${campo("epCont"+i,"Contato",p.contato,"telefone ou e-mail")}</div></div>
+      <div class="row"><div><label for="epIni${i}">Início do contrato</label><input id="epIni${i}" type="date" value="${esc(p.inicio||"")}"></div>
+        <div><label for="epFim${i}">Fim do contrato</label><input id="epFim${i}" type="date" value="${esc(p.fim||"")}"></div></div>
       ${campoLogo("p"+i,p)}
     </div>`).join("")}
     <button class="btn sec" onclick="novaPrestadora()">${'<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>'}Nova prestadora</button>
@@ -1768,13 +1814,18 @@ function pintaEditorEmpresas(){
 /* le o que esta digitado de volta para a copia de trabalho (antes de redesenhar ou salvar) */
 function leEditorEmpresas(){
   const v=id=>($(id)?.value||"").trim();
-  _empEd.prestadoras=_empEd.prestadoras.map((p,i)=>({...p,nome:v("epNome"+i),curto:v("epCurto"+i),cnpj:v("epCnpj"+i),contato:v("epCont"+i)}));
+  _empEd.prestadoras=_empEd.prestadoras.map((p,i)=>({...p,nome:v("epNome"+i),curto:v("epCurto"+i),cnpj:v("epCnpj"+i),contato:v("epCont"+i),
+    inicio:$("epIni"+i)?v("epIni"+i):(p.inicio??""),fim:$("epFim"+i)?v("epFim"+i):(p.fim??"")}));
   _empEd.atual=$("empAtual")?.value||_empEd.atual;
   _empEd.cliente={..._empEd.cliente,nome:v("ecNome"),curto:v("ecCurto"),cnpj:v("ecCnpj"),endereco:v("ecEnd")};}
 window.novaPrestadora=()=>{
   leEditorEmpresas();
   const id="p"+Date.now().toString(36);
-  _empEd.prestadoras.push({id,nome:"",curto:"",cnpj:"",contato:""});
+  /* contrato novo comeca hoje; o da prestadora que sai termina ontem (se ainda nao tinha fim) */
+  const hoje=dataHoje(),ontem=dataLocal(new Date(Date.now()-864e5));
+  const saindo=_empEd.prestadoras.find(p=>p.id===_empEd.atual);
+  if(saindo&&!saindo.fim&&(!saindo.inicio||saindo.inicio<=ontem))saindo.fim=ontem;
+  _empEd.prestadoras.push({id,nome:"",curto:"",cnpj:"",contato:"",inicio:hoje,fim:""});
   _empEd.atual=id;   /* quem cadastra uma nova normalmente e porque trocou de empresa */
   pintaEditorEmpresas();
   setTimeout(()=>{const i=$("epNome"+(_empEd.prestadoras.length-1));if(i)i.focus();},50);};
@@ -1784,6 +1835,12 @@ window.salvaEmpresas=async()=>{
   const falta=_empEd.prestadoras.findIndex(p=>!p.nome||!p.curto);
   if(falta>=0)return toast("Preencha o nome completo e o nome curto de todas as prestadoras.");
   if(!_empEd.cliente.nome)return toast("Preencha a razão social do cliente.");
+  /* periodos: inicio antes do fim e sem duas prestadoras no mesmo dia */
+  const ruim=_empEd.prestadoras.find(p=>p.inicio&&p.fim&&p.inicio>p.fim);
+  if(ruim)return toast(`${ruim.curto||ruim.nome}: o início do contrato está depois do fim.`);
+  const ini=p=>p.inicio||"0000-00-00",fim=p=>p.fim||"9999-12-31",comData=_empEd.prestadoras.filter(p=>p.inicio||p.fim);
+  for(let a=0;a<comData.length;a++)for(let b=a+1;b<comData.length;b++){const x=comData[a],y=comData[b];
+    if(ini(x)<=fim(y)&&ini(y)<=fim(x))return toast(`Os contratos de ${x.curto||x.nome} e ${y.curto||y.nome} se sobrepõem. Ajuste as datas.`);}
   /* o Firestore recusa documento acima de 1 MB; os logos sao o que pesa */
   if(JSON.stringify(_empEd).length>900000)return toast("Os logos somados ficaram grandes demais. Remova o logo de uma prestadora antiga ou use imagens menores.");
   const antes=PREST().nome;
@@ -2047,8 +2104,10 @@ window.salvar=async()=>{
          a exibir "reserva Engex" mesmo tendo sido feita normal, em área. Ver
          render() e exportXLSX() — usam este campo quando ele existe. */
       situacaoNaHora:TIPO==="ext"?situacaoDe("ext",EQ).k:null,
+      /* de quem era o cilindro emprestado no local (pode ser a prestadora anterior) */
+      reservaDe:TIPO==="ext"&&EQ.engex?curtoDe(prestDoEmprestimo(EQ)):null,
       /* empresa responsavel no dia: o relatorio do mes sai com ela, mesmo depois de trocar */
-      empresa:PREST().nome,empresaCurta:PNT(),empresaId:PREST().id,
+      empresa:prestadoraNaData(hoje).nome,empresaCurta:curtoDe(prestadoraNaData(hoje)),empresaId:prestadoraNaData(hoje).id,
       empresaInspetor:nomeEmpresa(MINHA_EMPRESA)||null};
     if(TIPO==="ext"){
       base.tipoLocal=$("fTipoLocal").value;base.cargaLocal=$("fCargaLocal").value;
@@ -2214,6 +2273,10 @@ function escutar(){
   /* empresas: no ambiente de teste, a copia teste_config/empresas (se existir) manda,
      para que o que se edita la apareca na tela; senao, o documento real */
   const usaEmp=d=>{EMPRESAS=normalizaEmpresas(d);pintaNomesEmpresa();
+    /* grava uma vez as datas de contrato que so existiam como padrao (quem pode: o dono) */
+    if(d&&DONO_EMP&&podeGravar()&&(d.prestadoras||[]).some(x=>(x.id===PRESTADORA_HISTORICA.id&&x.fim===undefined)||(x.id!==PRESTADORA_HISTORICA.id&&x.inicio===undefined))
+      &&JSON.stringify(EMPRESAS.prestadoras)!==JSON.stringify(d.prestadoras))
+      setDoc(doc(db,"config","empresas"),EMPRESAS).then(()=>audit("periodos_empresas",{prestadoras:EMPRESAS.prestadoras.map(x=>({id:x.id,inicio:x.inicio||"",fim:x.fim||""}))})).catch(e=>console.error("[periodos das empresas]",e));
     try{render();renderVenc();renderCond();mostraPadrao();}catch(e){}};
   onSnapshot(doc(db,MODO_TESTE?"teste_config":"config","empresas"),s=>{
     if(s.exists())return usaEmp(s.data());
@@ -2338,10 +2401,10 @@ window.confirmaCorrecaoLocal=async()=>{
   const mesmoNumero=String(dX.num??"").trim()!==""&&String(dX.num??"").trim()===String(dY.num??"").trim();
   /* a gravacao usa merge, que nao remove chave ausente: sem estes nulos a vaga
      esvaziada continuaria marcada como "em manutencao" ou "Engex" para sempre */
-  ["manut","manutDesde","manutDe","manutLoc","engex","engexDesde"].forEach(k=>{vazio[k]=null;});
+  ["manut","manutDesde","manutDe","manutLoc","manutEmp","engex","engexDesde","engexEmp"].forEach(k=>{vazio[k]=null;});
   const yEraReserva=isReserva(Y),ySeq=Y.seq;
   const _ovrAntesCL={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(ySeq)]:OVR[String(ySeq)]};
-  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...(_p.engexEmp!==undefined?{engexEmp:_p.engexEmp}:{}),...dY};}    /* o local verificado recebe o cilindro digitado, preservando a marcação de reserva Engex se houver */
   OVR[String(ySeq)]=vazio;   /* onde ele constava fica vazio */
   let novaReserva=false,seqSlot=null;
   if(dX.num&&!mesmoNumero){  /* o que constava aqui vira reserva */
@@ -2426,15 +2489,15 @@ window.confirmaTroca=async()=>{
   const eraReserva=isReserva(r);
   const CAMPOS=["num","tipo","carga","fab","fabricante","man2","man3"];
   const doEQ={},doR={};CAMPOS.forEach(c=>{doEQ[c]=EQ[c]??null;doR[c]=r[c]??null;});
-  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...doR};}
+  {const _p=OVR[String(EQ.seq)]||{};OVR[String(EQ.seq)]={...(_p.engex!==undefined?{engex:_p.engex}:{}),...(_p.engexDesde!==undefined?{engexDesde:_p.engexDesde}:{}),...(_p.engexEmp!==undefined?{engexEmp:_p.engexEmp}:{}),...doR};}
   /* Se quem entrou veio do pool de reserva, o cilindro que saiu foi para RECARGA:
      fica marcado como em manutenção até alguém registrar o retorno.
      Quando a troca é entre dois pontos fixos é só correção de cadastro — ninguém saiu para recarga. */
   OVR[String(r.seq)]=eraReserva
-    ?{...doEQ,manut:true,manutDesde:dataLocal(),manutDe:EQ.seq,manutLoc:EQ.loc||""}
+    ?{...doEQ,manut:true,manutDesde:dataLocal(),manutDe:EQ.seq,manutLoc:EQ.loc||"",manutEmp:prestadoraNaData(dataLocal()).id}
     /* troca entre dois pontos fixos: ninguem foi para recarga. Sem estes nulos o merge
        manteria uma marcacao de manutencao antiga que ficou no servidor. */
-    :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null};
+    :{...doEQ,manut:null,manutDesde:null,manutDe:null,manutLoc:null,manutEmp:null};
   /* mesma armadilha da verificacao de local: o mapa inteiro no corpo desfaz o que
      outro inspetor gravou. A troca mexe em duas posicoes, entao sobem duas. */
   const _patch={[String(EQ.seq)]:OVR[String(EQ.seq)],[String(r.seq)]:OVR[String(r.seq)]};
@@ -2510,7 +2573,7 @@ window.voltouRecarga=()=>{
       <div><label>Próx. Man. 2º Nível</label><input id="rcM2" type="date" value="${somaAnos(hoje,1)}"></div>
       <div><label>Próx. Man. 3º Nível</label><input id="rcM3" type="date" value="${EQ.man3||""}"></div>
     </div>
-    <p style="font-size:11.5px;color:var(--cinza2);margin:6px 0 0">Confira as duas datas no certificado devolvido pela ${PN()} antes de confirmar.</p>
+    <p style="font-size:11.5px;color:var(--cinza2);margin:6px 0 0">Confira as duas datas no certificado devolvido pela ${esc(curtoDe(prestDaManut(EQ)))} antes de confirmar.</p>
     <button class="btn" onclick="confirmaRetornoRecarga()">✅ Confirmar retorno</button>
     <button class="btn sec" onclick="dlg.close()">Cancelar</button>`;
   $("dlg").showModal();};
@@ -2524,7 +2587,7 @@ window.confirmaRetornoRecarga=async()=>{
   const novo={...anterior};
   /* nulos em vez de delete: assim a limpeza funciona tambem numa gravacao com merge,
      que e o que permite gravar so esta posicao em vez do mapa inteiro */
-  ["manut","manutDesde","manutDe","manutLoc"].forEach(k=>{novo[k]=null;});
+  ["manut","manutDesde","manutDe","manutLoc","manutEmp"].forEach(k=>{novo[k]=null;});
   novo.man2=m2;novo.man3=m3;
   OVR[seq]=novo;
   try{
@@ -2563,7 +2626,7 @@ function situacaoDe(tipo,e){
   if(tipo==="ext"){
     if(ehCondenado(e))return {k:"cond",txt:"Condenado",badge:"b-cond"};
     if(emManutencao(e))return {k:"manut",txt:"Em manutenção",badge:"b-manut"};
-    if(e.engex)return {k:"engex",txt:"Reserva "+PNT(),badge:"b-engex"};
+    if(e.engex)return {k:"engex",txt:"Reserva "+curtoDe(prestDoEmprestimo(e)),badge:"b-engex"};
     if(isReserva(e))return {k:"reserva",txt:"Reserva",badge:""};
     return {k:"area",txt:"Em área",badge:""};}
   return {k:"area",txt:"Em área",badge:""};}
@@ -2749,14 +2812,14 @@ window.render=()=>{
         ${i.divergencia?`<span class="badge" style="background:var(--warn)">⚠️ divergência</span>`:""}
         ${(i.temFoto&&!i.foto1)?`<span class="badge" style="background:var(--cinza)">📷 com foto</span>`:""}
         ${cd?`<span class="badge b-cond">⛔ CONDENADO</span>`:""}
-        ${sitHora==="engex"?`<span class="badge b-engex">${esc(String(i.empresaCurta||"Engex")).toUpperCase()}</span>`:""}
+        ${sitHora==="engex"?`<span class="badge b-engex">${esc(String(reservaDaInsp(i))).toUpperCase()}</span>`:""}
         ${sitHora==="manut"?`<span class="badge b-manut">🔧 MANUTENÇÃO</span>`:""}
         <h3 style="margin-top:6px">${esc(String(id??"—"))}${i.tipo==="ext"&&i.eqSeq!=null?` · Local ${esc(String(i.eqSeq))}`:""} · ${esc(i.eqLoc||"—")}</h3>
         ${i.tipo==="ext"&&(i.tipoLocal||i.cargaLocal)?`<p style="font-size:12.5px;color:var(--vinho);font-weight:700">${esc(i.tipoLocal||"")} ${esc(i.cargaLocal||"")}</p>`:""}
         <p>${esc(i.obs||"Sem observações.")}</p>
         <div class="meta">${fmtBR(i.data)} · ${esc(i.inspetor||"")}</div>
         ${cd?`<div class="meta" style="color:var(--cd)">Condenado em ${fmtBR(cd.data)} · ${esc(cd.relatorio||"—")}</div>`:""}
-        ${sitHora==="engex"?`<div class="meta" style="color:#92400e">🏢 Esta inspeção foi feita com o local em reserva ${esc(i.empresaCurta||"Engex")}</div>`:""}
+        ${sitHora==="engex"?`<div class="meta" style="color:#92400e">🏢 Esta inspeção foi feita com o local em reserva ${esc(reservaDaInsp(i))}</div>`:""}
         ${sitHora==="manut"?`<div class="meta" style="color:#7c3aed">🔧 Esta inspeção foi feita com o equipamento em manutenção</div>`:""}
       </div></div>`;}).join("")
     :(ITENS.length
@@ -2830,10 +2893,10 @@ window.render=()=>{
   const mb=$("manutBox");
   if(mb){
     mb.classList.toggle("hidden",!emManut.length);
-    if(emManut.length)dobraBox(mb,`Em recarga na ${PN()}`,emManut.length,"neutro",
+    if(emManut.length)dobraBox(mb,"Em recarga",emManut.length,"neutro",
       "Saíram do local para recarga e ainda não voltaram. Ficam fora da rota e não podem ser escolhidos como reserva.",
       emManut.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Nº ${esc(String(e.num??"—"))} — <b>${esc(String(e.tipo||e.agp||"—"))} ${esc(String(e.carga??e.cgp??""))}</b>
-        <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · desde ${fmtBR(e.manutDesde)}</small></span>
+        <br><small style="color:var(--cinza)">saiu de ${e.manutDe?`Ext ${esc(String(e.manutDe))}`:"—"}${e.manutLoc?` · ${esc(String(e.manutLoc).replace(/^Ext \d+ — /,""))}`:""} · na <b>${esc(curtoDe(prestDaManut(e)))}</b> desde ${fmtBR(e.manutDesde)}</small></span>
         <span class="badge b-manut">manutenção</span></div>`).join(""));}
   /* Mesmo numero de cilindro em duas posicoes: a "ultima inspecao" e buscada pelo
      numero, entao a inspecao de uma posicao conta pela outra — e a posicao que
@@ -2865,11 +2928,11 @@ window.render=()=>{
   if(eb){
     const comEngex=CAD.ext.filter(e=>e.engex&&!isReserva(e)&&!ehCondenado(e));
     eb.classList.toggle("hidden",!comEngex.length);
-    if(comEngex.length)dobraBox(eb,`Pontos com reserva ${PN()}`,comEngex.length,"neutro",
-      `Cilindro emprestado pela ${PN()} no lugar do original que está em manutenção.`,
+    if(comEngex.length)dobraBox(eb,"Pontos com reserva da prestadora",comEngex.length,"neutro",
+      "Cilindro emprestado pela prestadora no lugar do original que está em manutenção. A empresa é a do dia em que o cilindro foi emprestado.",
       comEngex.map(e=>`<div class="venc" style="cursor:pointer" onclick="irPara('ext','${e.seq}')"><span>🧯 Ext ${esc(String(e.seq))} — ${esc(String(e.loc||"").replace(/^Ext \d+ — /,""))}
         <br><small style="color:var(--cinza)">${e.num?`Nº ${esc(String(e.num))} · `:"Número do cilindro ainda não informado · "}reserva desde ${fmtBR(e.engexDesde)}</small></span>
-        <span class="badge b-engex">${PN()}</span></div>`).join(""));
+        <span class="badge b-engex">${esc(curtoDe(prestDoEmprestimo(e)))}</span></div>`).join(""));
   }
   $("pendBox").innerHTML=`<div class="cabSec"><label style="margin:0">Rota do mês</label><span style="font-size:14px;color:var(--cinza)">${mesExtenso(pm)}</span></div>
     <div class="rotaNum"><b>${inspRota}</b><span>de ${tot} pontos inspecionados</span></div>
@@ -3007,7 +3070,7 @@ window.renderVenc=()=>{
     /* Um cartao por EQUIPAMENTO, com os niveis dentro. Antes era uma linha por
        nivel: o mesmo extintor aparecia duas vezes e o contador somava linhas. */
     const pior=Math.min(...niveis.map(n=>n.dd));
-    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${esc(rotuloExt(e))} \u00b7 <b>${esc(rotuloAg(e))}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na ${PN()} desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${esc(subExt(e))}</small></span></div>`});});
+    linhas.push({d:pior,r:res,h:`<div class="venc"><span>${esc(rotuloExt(e))} \u00b7 <b>${esc(rotuloAg(e))}</b>${emManutencao(e)?` <span class="badge b-manut">\uD83D\uDD27 na ${esc(curtoDe(prestDaManut(e)))} desde ${fmtBR(e.manutDesde)}</span>`:""}${niveis.map(n=>`<br><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px">Man. ${n.rot} ${fmtBR(n.dt)} ${badgeVenc(n.dd)}</span>`).join("")}<br><small style="color:var(--cinza)">${esc(subExt(e))}</small></span></div>`});});
   linhas.sort((a,b)=>a.d-b.d);
   const inst=linhas.filter(l=>!l.r),rsv=linhas.filter(l=>l.r);
   const rotuloPrazo=fP>=9999?"sem limite de prazo":`até ${fP} dias`;
@@ -3705,7 +3768,7 @@ window._AUDIT_FALHAS=[];
    Cada erro de JavaScript (e cada console.error do proprio app) vira um registro em
    "erros", para o admin ver falhas de campo antes de alguem reclamar. No maximo 15
    por sessao e sem repetir a mesma mensagem; ruido de rede do Firebase fica de fora. */
-const VERSAO_APP="v22";
+const VERSAO_APP="v23";
 const COL_ERROS=MODO_TESTE?"teste_erros":"erros";
 const _errosVistos=new Set();let _errosN=0,_gravandoErro=false;
 const _RUIDO=/Could not reach Cloud Firestore|offline|ResizeObserver loop|network-request-failed|unavailable|Failed to fetch|Load failed|AbortError|QuotaExceeded.*IndexedDB|Script error\.?$/i;
@@ -4579,7 +4642,7 @@ async function alinhaOvrNovaPosicao(novo){
   if(!OVR[sq])return true;
   OVR[sq]={num:novo.num??null,tipo:novo.tipo??null,carga:novo.carga??null,
     fab:novo.fab??null,fabricante:novo.fabricante??null,man2:novo.man2??null,man3:novo.man3??null,
-    manut:null,manutDesde:null,manutDe:null,manutLoc:null,engex:null,engexDesde:null};
+    manut:null,manutDesde:null,manutDe:null,manutLoc:null,manutEmp:null,engex:null,engexDesde:null,engexEmp:null};
   return await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:{[sq]:OVR[sq]}},{merge:true}));}
 const proxSeqExt=()=>{
   const usados=seqsOcupadosExt(),hist=seqsComHistoricoExt();
@@ -4756,7 +4819,7 @@ window.confirmaAlteraId=async()=>{
     OVR[novo]={num:base.num??null,tipo:base.tipo??null,carga:base.carga??null,fab:base.fab??null,
       fabricante:base.fabricante??null,man2:base.man2??null,man3:base.man3??null,
       manut:base.manut??null,manutDesde:base.manutDesde??null,manutDe:base.manutDe??null,
-      manutLoc:base.manutLoc??null,engex:base.engex??null,engexDesde:base.engexDesde??null};
+      manutLoc:base.manutLoc??null,manutEmp:base.manutEmp??null,engex:base.engex??null,engexDesde:base.engexDesde??null,engexEmp:base.engexEmp??null};
     patch[novo]=OVR[novo];}
   delete OVR[atual];
   try{
@@ -4842,7 +4905,7 @@ function itemBuscaAdm(t,e){
   if(t==="hid")return `<span class="t">HID ${esc(String(e.pat))}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;
   const selo=ehCondenado(e)?` <span class="badge b-cond">⛔ CONDENADO</span>`
     :(emManutencao(e)?` <span class="badge b-manut">🔧 EM MANUTENÇÃO</span>`
-    :(e.engex?` <span class="badge b-engex">${PN().toUpperCase()}</span>`:""));
+    :(e.engex?` <span class="badge b-engex">${esc(curtoDe(prestDoEmprestimo(e))).toUpperCase()}</span>`:""));
   return isReserva(e)
     ?`<span class="t">Reserva ${esc(String(e.seq))} · Nº ${esc(String(e.num??"—"))}${selo}</span><span class="s">pool de reserva</span>`
     :`<span class="t">EXT ${esc(String(e.seq))} · Nº ${esc(String(e.num??"—"))}${selo}</span><span class="s">${esc(e.loc||"sem localização")}</span>`;}
@@ -5102,7 +5165,7 @@ window.exportCadLote=async()=>{
        seguem preenchidos com o dado real do cilindro que está lá (que fica em
        e.tipo/e.carga, não em e.agp/e.cgp, enquanto ele está em manutenção). */
     CAD.ext.filter(e=>!ehCondenado(e)).forEach(e=>ws.addRow([e.seq,
-      e.engex?"Reserva "+PNT():(e.num??""),e.pat??"",(e.tipo||e.agp)??"",(e.carga??e.cgp)??"",
+      e.engex?"Reserva "+curtoDe(prestDoEmprestimo(e)):(e.num??""),e.pat??"",(e.tipo||e.agp)??"",(e.carga??e.cgp)??"",
       e.loc??"",e.fab??"",e.fabricante??"",fmtBR(e.man2),fmtBR(e.man3),"",""]));
   }else{
     ws.addRow(["Patrimônio (não alterar)","Tipo","Capacidade","Localização","Fabricação (ano)","Fabricante","Próx. Manutenção","Próx. T. Hidrostático","Novo Patrimônio (só preencha se quiser mudar)","Remover? (S/N)"]);
@@ -5167,7 +5230,7 @@ window.processaLote=async modo=>{
           if(OVR[String(seqNovo)]){
             OVR[String(seqNovo)]={num:novoEq.num,tipo:novoEq.tipo,carga:novoEq.carga,fab:novoEq.fab,
               fabricante:novoEq.fabricante,man2:novoEq.man2??null,man3:novoEq.man3??null,
-              manut:null,manutDesde:null,manutDe:null,manutLoc:null,engex:null,engexDesde:null};
+              manut:null,manutDesde:null,manutDe:null,manutLoc:null,manutEmp:null,engex:null,engexDesde:null,engexEmp:null};
             patchOvr[String(seqNovo)]=OVR[String(seqNovo)];}
           add++;
         }else{
@@ -5258,7 +5321,7 @@ window.processaLote=async modo=>{
             OVR[String(n)]={num:base.num??null,tipo:base.tipo??null,carga:base.carga??null,fab:base.fab??null,
               fabricante:base.fabricante??null,man2:base.man2??null,man3:base.man3??null,
               manut:base.manut??null,manutDesde:base.manutDesde??null,manutDe:base.manutDe??null,
-              manutLoc:base.manutLoc??null,engex:base.engex??null,engexDesde:base.engexDesde??null};
+              manutLoc:base.manutLoc??null,manutEmp:base.manutEmp??null,engex:base.engex??null,engexDesde:base.engexDesde??null,engexEmp:base.engexEmp??null};
             patchOvr[String(n)]=OVR[String(n)];}
           patchOvr[r.atual]=deleteField();
           delete OVR[r.atual];
@@ -5475,7 +5538,7 @@ async function blocoAssinaturas(wb,ws,r,nomes){
    atual, e não o que era verdade na época daquela inspeção. */
 const SIT_TXT={cond:"Condenado",manut:"Em manutenção",engex:"Reserva Engex",reserva:"Reserva",area:"Em área"};
 /* reserva emprestada: com o nome da prestadora gravado na inspecao (as antigas: Engex) */
-const situacaoNoRelatorio=(e,insp)=>insp?.situacaoNaHora==="engex"?"Reserva "+(insp.empresaCurta||"Engex")
+const situacaoNoRelatorio=(e,insp)=>insp?.situacaoNaHora==="engex"?"Reserva "+reservaDaInsp(insp)
   :(insp?.situacaoNaHora&&SIT_TXT[insp.situacaoNaHora]||situacaoDe("ext",e).txt);
 /* "Padrão de Ag./Carga" só existe de verdade pra local fixo (e.agp/e.cgp).
    Reserva não tem padrão — o cilindro ali muda com o tempo — então pra reserva
@@ -5667,7 +5730,19 @@ window.exportXLSX=async tipo=>{
   a.download=`Relatorio_${tipo==="ext"?"Extintores":"Hidrantes"}_${pm}${sufFmt}.xlsx`;a.click();
   toast("✅ Relatório gerado!");};
 
-if("serviceWorker"in navigator&&location.protocol==="https:")navigator.serviceWorker.register("/sw.js").catch(()=>{});
+/* Aviso de versao nova: o service worker novo assume a pagina assim que e publicado
+   (skipWaiting + clients.claim) e dispara "controllerchange". Nao recarrega sozinho
+   para nao perder uma inspecao no meio: mostra a faixa e a pessoa recarrega quando puder.
+   A cada 15 min e ao voltar para o app, pergunta ao servidor se ha versao nova. */
+window.mostraAvisoAtualizacao=()=>{const a=document.getElementById("avisoAtualiza");if(a)a.classList.remove("hidden");};
+if("serviceWorker"in navigator&&location.protocol==="https:"){
+  const tinhaControle=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{if(tinhaControle)window.mostraAvisoAtualizacao();});
+  navigator.serviceWorker.register("/sw.js").then(reg=>{
+    const confere=()=>{try{reg.update().catch(()=>{});}catch(e){}};
+    setInterval(confere,15*60*1000);
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")confere();});
+  }).catch(()=>{});}
 </script>
 </body>
 </html>
