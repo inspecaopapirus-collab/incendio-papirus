@@ -305,6 +305,11 @@ details.dobra .dobraIn{padding:0 18px 18px}
 .btngrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .btngrid .btn{margin-top:0;padding:10px 8px;font-size:15px}
 @media(max-width:420px){.btngrid{grid-template-columns:1fr}}
+.avisoVersao{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:95;display:flex;gap:12px;align-items:center;
+  background:#2b1414;color:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:560px;margin:0 auto}
+.avisoVersao .avTxt{flex:1;font-size:14.5px;line-height:1.45}
+.avisoVersao small{display:block;margin-top:5px;font-size:12.5px;background:#fde68a;color:#713f12;border-radius:6px;padding:3px 7px;font-weight:600}
+.avisoVersao button{flex-shrink:0;border:none;border-radius:10px;background:#fff;color:var(--vinho);font-weight:700;font-size:15px;padding:11px 16px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -677,6 +682,11 @@ details.dobra .dobraIn{padding:0 18px 18px}
  </div>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="avisoVersao" class="avisoVersao hidden" role="alert">
+  <div class="avTxt"><b>✨ O sistema foi atualizado.</b> Termine o que está fazendo e toque em <b>Atualizar</b>.
+    <small>Inspeção que ainda não foi salva pode se perder. O que já foi salvo continua guardado.</small></div>
+  <button type="button" onclick="atualizarSistema()">Atualizar</button>
+</div>
 
 <script type="module">
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -961,9 +971,13 @@ function prestadoraObjDoMes(pm){
    data (campo "Inicio do contrato" de cada prestadora; antes do primeiro inicio, a Engex). */
 const prestadoraPorId=id=>id?((EMPRESAS.prestadoras||[]).find(p=>p.id===id)||(id===PRESTADORA_HISTORICA.id?PRESTADORA_HISTORICA:null)):null;
 function prestadoraNaData(d){
-  const ps=(EMPRESAS.prestadoras||[]).filter(p=>p.desde&&d&&p.desde<=String(d).slice(0,10))
-    .sort((a,b)=>String(b.desde).localeCompare(String(a.desde)));
-  return ps[0]||prestadoraPorId(PRESTADORA_HISTORICA.id)||PRESTADORA_HISTORICA;}
+  const dia=String(d||"").slice(0,10);
+  if(dia){
+    /* a que tinha contrato no dia: inicio <= dia <= fim (sem inicio = desde sempre; sem fim = ate hoje) */
+    const ps=(EMPRESAS.prestadoras||[]).filter(p=>(p.desde||p.ate)&&(!p.desde||p.desde<=dia)&&(!p.ate||dia<=p.ate))
+      .sort((a,b)=>String(b.desde||"").localeCompare(String(a.desde||"")));
+    if(ps[0])return ps[0];}
+  return prestadoraPorId(PRESTADORA_HISTORICA.id)||PRESTADORA_HISTORICA;}
 const empManut=e=>prestadoraPorId(e&&e.manutEmp)||prestadoraNaData(e&&e.manutDesde);
 const empReserva=e=>prestadoraPorId(e&&e.engexEmp)||prestadoraNaData(e&&e.engexDesde);
 const curtoT=p=>(p&&(p.curto||p.nome))||PNT();
@@ -1380,7 +1394,7 @@ window.toggleEngex=async()=>{
     const okCadxAdd=novoSeq?await comTimeout(gravaCADX()):true;
     const okEngex=await comTimeout(setDoc(doc(db,"config","cadastroExt"),{overrides:patch},{merge:true}));
     const okMov=vaiParaManut?await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataHoje(),
-      motivo:"Reserva "+PNT(),posicao:seqOriginal,loc:locOriginal,saiu:numOriginal,entrou:null,
+      motivo:"Reserva "+PNT(),empresaId:PREST().id,empresa:PNT(),posicao:seqOriginal,loc:locOriginal,saiu:numOriginal,entrou:null,
       divergencia:false,divergAceita:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()})):true;
     const ok=okCadxAdd&&okEngex&&okMov;
@@ -1736,10 +1750,18 @@ function pintaUInfo(){
   $("uInfo").innerHTML=`<b>${esc(nm)}</b>${NOME?`<small>${esc(em)}</small>`:""}`;
   $("uAssOk").textContent=ASSIN?"✓ salva":"";}
 /* ================= Empresas (so o dono do cadastro) ================= */
+/* Datas de contrato conhecidas: a Engex atendeu ate 31/10/2026 e a RBR comeca em 01/11/2026.
+   Valem enquanto o campo estiver vazio no cadastro de empresas (o dono pode alterar la). */
+const CONTRATOS_CONHECIDOS=[
+  {e:p=>p.id==="engex",ate:"2026-10-31"},
+  {e:p=>/\bRBR\b/i.test(`${p.nome||""} ${p.curto||""}`),desde:"2026-11-01"}];
+function comContratos(lista){
+  return lista.map(p=>{const c=CONTRATOS_CONHECIDOS.find(x=>x.e(p));if(!c)return p;
+    return {...p,...(c.desde&&!p.desde?{desde:c.desde}:{}),...(c.ate&&!p.ate?{ate:c.ate}:{})};});}
 function normalizaEmpresas(d){
-  const p=JSON.parse(JSON.stringify(EMPRESAS_PADRAO));if(!d)return p;
+  const p=JSON.parse(JSON.stringify(EMPRESAS_PADRAO));if(!d){p.prestadoras=comContratos(p.prestadoras);return p;}
   const lista=Array.isArray(d.prestadoras)&&d.prestadoras.length?d.prestadoras:p.prestadoras;
-  return {atual:d.atual||p.atual,prestadoras:lista,cliente:{...p.cliente,...(d.cliente||{})}};}
+  return {atual:d.atual||p.atual,prestadoras:comContratos(lista),cliente:{...p.cliente,...(d.cliente||{})}};}
 /* textos fixos do HTML que levam o nome da prestadora */
 function pintaNomesEmpresa(){
   document.querySelectorAll(".nPrest").forEach(e=>e.textContent=PNT());
@@ -1790,8 +1812,9 @@ function pintaEditorEmpresas(){
       ${campo("epNome"+i,"Nome completo (sai no relatório)",p.nome,"ex.: Nome da Empresa Extintores Ltda")}
       ${campo("epCurto"+i,"Nome curto (aparece nas telas)",p.curto,"ex.: Engex")}
       <div class="row"><div>${campo("epCnpj"+i,"CNPJ",p.cnpj,"00.000.000/0000-00")}</div><div>${campo("epCont"+i,"Contato",p.contato,"telefone ou e-mail")}</div></div>
-      <label for="epDesde${i}">Início do contrato</label><input id="epDesde${i}" type="date" value="${esc(p.desde||"")}">
-      <p style="font-size:12.5px;color:var(--cinza);margin-top:4px">Usado para saber com qual empresa estão os cilindros que saíram para recarga antes de o app gravar a empresa em cada registro. ${p.id==="engex"?"Pode deixar em branco: o que for anterior ao início das outras fica com esta.":""}</p>
+      <div class="row"><div><label for="epDesde${i}">Início do contrato</label><input id="epDesde${i}" type="date" value="${esc(p.desde||"")}"></div>
+        <div><label for="epAte${i}">Fim do contrato</label><input id="epAte${i}" type="date" value="${esc(p.ate||"")}"></div></div>
+      <p style="font-size:12.5px;color:var(--cinza);margin-top:4px">Usado para saber com qual empresa estão os cilindros que saíram para recarga antes de o app gravar a empresa em cada registro. Fim em branco = contrato em andamento.</p>
       ${campoLogo("p"+i,p)}
     </div>`).join("")}
     <button class="btn sec" onclick="novaPrestadora()">${'<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>'}Nova prestadora</button>
@@ -1806,7 +1829,7 @@ function pintaEditorEmpresas(){
 /* le o que esta digitado de volta para a copia de trabalho (antes de redesenhar ou salvar) */
 function leEditorEmpresas(){
   const v=id=>($(id)?.value||"").trim();
-  _empEd.prestadoras=_empEd.prestadoras.map((p,i)=>({...p,nome:v("epNome"+i),curto:v("epCurto"+i),cnpj:v("epCnpj"+i),contato:v("epCont"+i),desde:v("epDesde"+i)}));
+  _empEd.prestadoras=_empEd.prestadoras.map((p,i)=>({...p,nome:v("epNome"+i),curto:v("epCurto"+i),cnpj:v("epCnpj"+i),contato:v("epCont"+i),desde:v("epDesde"+i),ate:v("epAte"+i)}));
   _empEd.atual=$("empAtual")?.value||_empEd.atual;
   _empEd.cliente={..._empEd.cliente,nome:v("ecNome"),curto:v("ecCurto"),cnpj:v("ecCnpj"),endereco:v("ecEnd")};}
 window.novaPrestadora=()=>{
@@ -2481,6 +2504,7 @@ window.confirmaTroca=async()=>{
     const okMov=await comTimeout(addDoc(collection(db,"movimentacoes"),{data:dataLocal(),
       cadastroConfirmado:okCad,
       posicao:EQ.seq,loc:EQ.loc||"",saiu:doEQ.num,entrou:doR.num,
+      ...(eraReserva?{empresaId:PREST().id,empresa:PNT()}:{}),
       divergencia:!!ok,divergAceita:ok?ok.value:"",
       inspetor:NOME||auth.currentUser.email,criadoEm:Date.now()}));
     audit(eraReserva?"troca_por_reserva":"troca_entre_locais",{local:EQ.seq,saiu:doEQ.num,entrou:doR.num,deOnde:r.seq},okCad&&okMov);
@@ -3746,6 +3770,22 @@ window._AUDIT_FALHAS=[];
    "erros", para o admin ver falhas de campo antes de alguem reclamar. No maximo 15
    por sessao e sem repetir a mesma mensagem; ruido de rede do Firebase fica de fora. */
 const VERSAO_APP="v22";
+/* ---------- Aviso de versao nova ----------
+   A publicacao (deploy.yml) troca __VERSAO_SITE__ pelo codigo da versao e grava o mesmo valor
+   em /versao.json. A tela aberta pergunta ao site a cada minuto (e ao voltar para o app):
+   se o arquivo tiver outra versao, mostra o aviso para recarregar. Nao gasta nada do Firestore. */
+const VERSAO_SITE="__VERSAO_SITE__";
+(()=>{
+  if(VERSAO_SITE.startsWith("__"))return;   /* rodando fora da publicacao (testes, computador de quem programa) */
+  let avisado=false;
+  const pergunta=async()=>{
+    if(avisado||document.visibilityState!=="visible"||!navigator.onLine)return;
+    try{const r=await fetch(`/versao.json?t=${Date.now()}`,{cache:"no-store"});if(!r.ok)return;
+      const v=(await r.json()).versao;
+      if(v&&v!==VERSAO_SITE){avisado=true;$("avisoVersao").classList.remove("hidden");}}catch(e){}};
+  setTimeout(pergunta,5000);setInterval(pergunta,60000);
+  document.addEventListener("visibilitychange",pergunta);})();
+window.atualizarSistema=()=>location.reload();
 const COL_ERROS=MODO_TESTE?"teste_erros":"erros";
 const _errosVistos=new Set();let _errosN=0,_gravandoErro=false;
 const _RUIDO=/Could not reach Cloud Firestore|offline|ResizeObserver loop|network-request-failed|unavailable|Failed to fetch|Load failed|AbortError|QuotaExceeded.*IndexedDB|Script error\.?$/i;

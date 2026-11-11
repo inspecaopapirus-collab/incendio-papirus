@@ -323,9 +323,9 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
   /* 7. troca de prestadora: cada cilindro em recarga / reserva emprestada mostra a empresa com quem esta */
   HTML = preparaHtml(false); await zera();
   await escreve(async d => {
-    await F.setDoc(F.doc(d, "config", "empresas"), { atual: "rbr", prestadoras: [
+    await F.setDoc(F.doc(d, "config", "empresas"), { atual: "p1abc", prestadoras: [
       { id: "engex", nome: "Engex Extintores e Equipamentos", curto: "Engex" },
-      { id: "rbr", nome: "RBR Extintores", curto: "RBR", desde: "2026-11-01" }] });
+      { id: "p1abc", nome: "RBR Extintores", curto: "RBR" }] });
     await F.setDoc(F.doc(d, "config", "cadastroExt"), { overrides: {
       /* registros antigos, sem a empresa gravada: vale a data */
       "2": { manut: true, manutDesde: "2026-10-15", manutDe: 30, manutLoc: "Ext 30 — Caldeira" },
@@ -347,16 +347,32 @@ const confere = (ok, desc, detalhe) => { if (!ok) falhas++; console.log(`${ok ? 
     await p.evaluate(() => window.escolheEquip("ext", "2")); await p.waitForTimeout(500);
     const tela = await p.evaluate(() => document.getElementById("app").innerText);
     confere(tela.includes("EM MANUTENÇÃO na Engex desde 15/10/2026"), "tela do cilindro: 'em manutenção na Engex desde 15/10/2026'");
-    await p.evaluate(() => window.trocaEmpresaReg("manutEmp")); await p.selectOption("#teEmp", "rbr");
+    await p.evaluate(() => window.trocaEmpresaReg("manutEmp")); await p.selectOption("#teEmp", "p1abc");
     await p.evaluate(() => window.salvaEmpresaReg("manutEmp")); await p.waitForTimeout(1500);
     const o2 = (await le("config", "cadastroExt")).overrides["2"];
-    confere(o2.manutEmp === "rbr" && o2.manutDesde === "2026-10-15", "admin corrige a empresa de um cilindro sem mexer na data", o2);
+    confere(o2.manutEmp === "p1abc" && o2.manutDesde === "2026-10-15", "admin corrige a empresa de um cilindro sem mexer na data", o2);
     /* marcar reserva agora: grava a empresa atual na reserva e no cilindro que foi para recarga */
     await p.evaluate(() => { window.escolheEquip("ext", "5"); return window.toggleEngex(); }); await p.waitForTimeout(3500);
     const ov = (await le("config", "cadastroExt")).overrides;
     const foi = Object.values(ov).find(x => x.manut && x.manutDe === 5);
-    confere(ov["5"].engex === true && ov["5"].engexEmp === "rbr" && foi && foi.manutEmp === "rbr", "reserva marcada hoje grava a empresa (RBR) nos dois registros", { r: ov["5"], foi });
+    const mov = await (async () => { let m = null; await env.withSecurityRulesDisabled(async c => { const q = await F.getDocs(F.collection(c.firestore(), "movimentacoes")); m = q.docs.map(x => x.data()).find(x => x.posicao === 5) || null; }); return m; })();
+    confere(mov && mov.empresa === "RBR" && mov.empresaId === "p1abc", "movimentação da recarga grava a empresa", mov);
+    confere(ov["5"].engex === true && ov["5"].engexEmp === "p1abc" && foi && foi.manutEmp === "p1abc", "reserva marcada hoje grava a empresa (RBR) nos dois registros", { r: ov["5"], foi });
     confere(p.erros.length === 0, "troca de prestadora sem erro de JavaScript", p.erros);
+    await ctx.close(); }
+
+  /* 8. aviso de versao nova: a publicacao grava a versao no index.html e em /versao.json */
+  HTML = preparaHtml(false).replace(/__VERSAO_SITE__/g, "v-antiga"); await zera();
+  { const { ctx, p } = await abre();
+    let versaoNoSite = "v-antiga";
+    await ctx.route("**/versao.json*", r => r.fulfill({ contentType: "application/json", body: JSON.stringify({ versao: versaoNoSite }) }));
+    await entra(p, "admin.teste@exemplo.com"); await p.waitForSelector("#app:not(.hidden)", { timeout: 20000 }); await p.waitForTimeout(6500);
+    confere(await p.$eval("#avisoVersao", e => e.classList.contains("hidden")), "mesma versão no site: sem aviso");
+    versaoNoSite = "v-nova";
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); await p.waitForTimeout(1500);
+    confere(!(await p.$eval("#avisoVersao", e => e.classList.contains("hidden"))) && (await p.textContent("#avisoVersao")).includes("foi atualizado"), "versão nova publicada: aparece o aviso para atualizar");
+    if (process.env.FOTOS) { await p.setViewportSize({ width: 390, height: 844 }); await p.screenshot({ path: path.join(process.env.FOTOS, "aviso-versao.png") }); }
+    confere(p.erros.length === 0, "aviso de versão sem erro de JavaScript", p.erros);
     await ctx.close(); }
 
   await browser.close(); await env.cleanup(); servidor.close();

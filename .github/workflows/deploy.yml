@@ -9,6 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # versao desta publicacao: vai para o index.html e para /versao.json; as telas abertas
+      # comparam as duas e mostram "o sistema foi atualizado" (ver VERSAO_SITE no index.html)
+      - name: Marcar a versao publicada
+        run: |
+          V="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          grep -q '__VERSAO_SITE__' index.html
+          sed -i "s/__VERSAO_SITE__/$V/" index.html
+          printf '{"versao":"%s"}\n' "$V" > versao.json
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
