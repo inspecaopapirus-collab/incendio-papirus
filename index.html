@@ -1343,7 +1343,9 @@ function mostraPadrao(){
         if(!EQ.num)return "";
         const outras=(CAD.ext||[]).filter(e=>String(e.seq)!==String(EQ.seq)&&String(e.num??"").trim()===String(EQ.num).trim());
         if(!outras.length)return "";
-        const onde=outras.map(e=>`${isReserva(e)?"Reserva":"Ext"} ${esc(String(e.seq))}${e.loc&&!isReserva(e)?` — ${esc(String(e.loc))}`:""}`).join(", ");
+        /* reserva sem o ID interno da vaga (ver rotuloLocal) */
+        const onde=outras.map(e=>isReserva(e)?(emManutencao(e)?"um cilindro em recarga":"o pool de reserva")
+          :`Ext ${esc(String(e.seq))}${e.loc?` — ${esc(String(e.loc))}`:""}`).join(", ");
         return `<div style="border-left:4px solid var(--nc);background:#fdecea;border-radius:6px;padding:8px 10px;margin:10px 0;font-size:12.5px;line-height:1.55">
           <b style="color:var(--nc)">⚠️ Este número também consta em ${onde}.</b><br>
           Enquanto estiver assim, a inspeção de um ponto conta pelo outro e o que ninguém visitar não aparece como pendente.<br>
@@ -3815,7 +3817,7 @@ window._AUDIT_FALHAS=[];
    Cada erro de JavaScript (e cada console.error do proprio app) vira um registro em
    "erros", para o admin ver falhas de campo antes de alguem reclamar. No maximo 15
    por sessao e sem repetir a mesma mensagem; ruido de rede do Firebase fica de fora. */
-const VERSAO_APP="v24";
+const VERSAO_APP="v25";
 const COL_ERROS=MODO_TESTE?"teste_erros":"erros";
 const _errosVistos=new Set();let _errosN=0,_gravandoErro=false;
 const _RUIDO=/Could not reach Cloud Firestore|offline|ResizeObserver loop|network-request-failed|unavailable|Failed to fetch|Load failed|AbortError|QuotaExceeded.*IndexedDB|Script error\.?$/i;
